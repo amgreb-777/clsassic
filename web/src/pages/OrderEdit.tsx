@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchAll, supabase } from '../lib/supabase'
 import { STATUS_LABEL, type Dish, type Ingredient, type Order, type OrderStatus, type PurchaseRow } from '../lib/types'
@@ -6,7 +6,15 @@ import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
-import { catOf, categoryCounts, dishMatches } from '../lib/search'
+import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
+
+/** Порядок відділів у списку закупки — як маршрут магазином/ринком. */
+const AISLES = [
+  'Овочі та гриби', 'Зелень і салати', 'Фрукти та ягоди', "М'ясо", 'Птиця', 'Ковбаси та делікатеси',
+  'Риба та морепродукти', 'Сири', 'Молочні продукти та яйця', 'Хліб, випічка, тісто', 'Бакалія та спеції',
+  'Консервація та соління', 'Соуси, олії та пасти', 'Горіхи та сухофрукти', 'Солодощі та джеми', 'Напівфабрикати', 'Напої',
+]
+const aisleRank = (c: string) => (c === NO_CAT ? 999 : AISLES.indexOf(c) === -1 ? 500 : AISLES.indexOf(c))
 
 type Tab = 'menu' | 'purchase' | 'breakdown'
 
@@ -426,6 +434,21 @@ function PurchaseTab({ order }: { order: Order }) {
   const [error, setError] = useState<string | null>(null)
   const [inKg, setInKg] = useState(true)
   const [onlyLeft, setOnlyLeft] = useState(false)
+  const [grouped, setGroupedState] = useState(() => {
+    try {
+      return localStorage.getItem('purchaseGrouped') !== '0'
+    } catch {
+      return true
+    }
+  })
+  const setGrouped = (v: boolean) => {
+    setGroupedState(v)
+    try {
+      localStorage.setItem('purchaseGrouped', v ? '1' : '0')
+    } catch {
+      /* немає доступу до localStorage */
+    }
+  }
   const [q, setQ] = useState('')
   const key = `bought:${order.id}`
   const [bought, setBought] = useState<Set<string>>(() => {
@@ -471,18 +494,33 @@ function PurchaseTab({ order }: { order: Order }) {
   const k = (r: PurchaseRow) => `${r.product_id}|${r.unit}`
   const boughtCount = rows.filter((r) => bought.has(k(r))).length
   const pct = Math.round((boughtCount / rows.length) * 100)
-  const shown = rows.filter(
-    (r) => (!q || r.product.toLowerCase().includes(q.toLowerCase())) && (!onlyLeft || !bought.has(k(r))),
+  const cat = (r: PurchaseRow) => r.category || NO_CAT
+  // порядок показу: за відділами (якщо увімкнено) і за назвою
+  const ordered = grouped
+    ? [...rows].sort((a, b) => aisleRank(cat(a)) - aisleRank(cat(b)) || cat(a).localeCompare(cat(b), 'uk') || a.product.localeCompare(b.product, 'uk'))
+    : rows
+  const numberOf = new Map(ordered.map((r, i) => [k(r), i + 1]))
+  const shown = ordered.filter(
+    (r) => (!q || `${norm(r.product)} ${norm(cat(r))}`.includes(norm(q))) && (!onlyLeft || !bought.has(k(r))),
   )
+  const groups: { name: string; items: PurchaseRow[] }[] = []
+  for (const r of shown) {
+    const g = grouped ? cat(r) : ''
+    if (!groups.length || groups[groups.length - 1].name !== g) groups.push({ name: g, items: [] })
+    groups[groups.length - 1].items.push(r)
+  }
+  const groupTotal = (name: string) => rows.filter((r) => cat(r) === name)
+  const groupBought = (name: string) => groupTotal(name).filter((r) => bought.has(k(r))).length
   const grams = rows.filter((r) => r.unit === 'г')
   const totalGross = grams.reduce((s, r) => s + Number(r.gross_total), 0)
   const totalNet = grams.reduce((s, r) => s + Number(r.net_total), 0)
 
   function exportCsv() {
     downloadCsv(`Закупка - ${order.title}.csv`, [
-      ['№', 'Продукт', 'Од.', 'Брутто', 'Нетто, г', 'Кількість страв', 'Страви'],
-      ...rows!.map((r, i) => [
+      ['№', 'Категорія', 'Продукт', 'Од.', 'Брутто', 'Нетто, г', 'Кількість страв', 'Страви'],
+      ...ordered.map((r, i) => [
         i + 1,
+        cat(r),
         r.product,
         r.unit === 'г' && inKg ? 'кг' : r.unit,
         r.unit === 'г' && inKg ? Number(r.gross_total) / 1000 : Number(r.gross_total),
@@ -507,9 +545,10 @@ function PurchaseTab({ order }: { order: Order }) {
 
       <section className="card flush">
         <div className="row wrap no-print" style={{ padding: 16, gap: 12, borderBottom: '1px solid var(--line)' }}>
-          <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт…" />
+          <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт або відділ…" />
           <label className="check small"><input type="checkbox" checked={inKg} onChange={(e) => setInKg(e.target.checked)} /> у кг</label>
           <label className="check small"><input type="checkbox" checked={onlyLeft} onChange={(e) => setOnlyLeft(e.target.checked)} /> лише некуплені</label>
+          <label className="check small"><input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} /> за відділами</label>
           <div className="row">
             {boughtCount > 0 && (
               <button className="btn ghost sm" onClick={() => save(new Set())} title="Зняти всі позначки">Скинути</button>
@@ -531,26 +570,42 @@ function PurchaseTab({ order }: { order: Order }) {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
-                const done = bought.has(k(r))
-                return (
-                  <tr key={k(r)} className={done ? 'done' : ''} onClick={(e) => (e.target as HTMLElement).tagName !== 'INPUT' && toggle(k(r))} style={{ cursor: 'pointer' }}>
-                    <td className="no-print">
-                      <input type="checkbox" checked={done} onChange={() => toggle(k(r))} aria-label={`Куплено: ${r.product}`} />
-                    </td>
-                    <td className="muted tnum">{rows.indexOf(r) + 1}</td>
-                    <td>
-                      <span className="pname">{r.product}</span>
-                      {r.unit !== 'г' && <span className="tag">{r.unit}</span>}
-                    </td>
-                    <td className="num strong">{qty(r.gross_total, r.unit, inKg)}</td>
-                    <td className="num muted hide-sm">{qty(r.net_total, 'г', inKg)}</td>
-                    <td className="num hide-sm" title={r.dishes.join('\n')}>
-                      <span className="badge plain">{r.dishes_count}</span>
-                    </td>
-                  </tr>
-                )
-              })}
+              {groups.map((g) => (
+                <Fragment key={g.name || 'all'}>
+                  {grouped && (
+                    <tr className="group-row">
+                      <td colSpan={6}>
+                        <span className="group-name">{g.name}</span>
+                        <span className="group-meta">
+                          {groupBought(g.name)} / {groupTotal(g.name).length}
+                          {groupBought(g.name) === groupTotal(g.name).length && <Icon name="check" size={14} />}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                  {g.items.map((r) => {
+                    const done = bought.has(k(r))
+                    return (
+                      <tr key={k(r)} className={done ? 'done' : ''} onClick={(e) => (e.target as HTMLElement).tagName !== 'INPUT' && toggle(k(r))} style={{ cursor: 'pointer' }}>
+                        <td className="no-print">
+                          <input type="checkbox" checked={done} onChange={() => toggle(k(r))} aria-label={`Куплено: ${r.product}`} />
+                        </td>
+                        <td className="muted tnum">{numberOf.get(k(r))}</td>
+                        <td>
+                          <span className="pname">{r.product}</span>
+                          {r.unit !== 'г' && <span className="tag">{r.unit}</span>}
+                          {!grouped && <div className="small muted">{cat(r)}</div>}
+                        </td>
+                        <td className="num strong">{qty(r.gross_total, r.unit, inKg)}</td>
+                        <td className="num muted hide-sm">{qty(r.net_total, 'г', inKg)}</td>
+                        <td className="num hide-sm" title={r.dishes.join('\n')}>
+                          <span className="badge plain">{r.dishes_count}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </Fragment>
+              ))}
               {shown.length === 0 && (
                 <tr><td colSpan={6} className="muted center-text" style={{ padding: 24 }}>{onlyLeft ? 'Усе куплено 🎉' : 'Нічого не знайдено'}</td></tr>
               )}
