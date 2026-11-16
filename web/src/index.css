@@ -522,3 +522,17 @@ tr.inactive td { opacity: 0.55; }
 .group-name { font-family: var(--font-display); font-weight: 600; font-size: 0.86rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
 .group-meta { float: right; display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 @media print { .group-row td { position: static; background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+/* Харчова цінність */
+.nutr-table td, .nutr-table th { padding: 9px 12px; }
+[class^='dot-'] { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+.dot-kcal { background: var(--ink-2); }
+.dot-protein { background: #6f8f5e; }
+.dot-fat { background: var(--gold); }
+.dot-carbs { background: #b9744e; }
+.macro-bar { display: flex; height: 10px; border-radius: var(--r-pill); overflow: hidden; margin-top: 14px; background: var(--surface-3); }
+.macro-bar i { display: block; height: 100%; }
+.macro-bar .p { background: #6f8f5e; }
+.macro-bar .f { background: var(--gold); }
+.macro-bar .c { background: #b9744e; }
+.macro-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--ink-2); }
+.kbzv { font-size: 0.78rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }

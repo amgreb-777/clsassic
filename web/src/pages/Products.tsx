@@ -6,6 +6,16 @@ import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useConfirm, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
 import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
+import { gFmt, kcalFmt } from '../lib/nutrition'
+
+type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string }
+const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
+const NUTR: { k: 'kcal' | 'protein' | 'fat' | 'carbs'; label: string }[] = [
+  { k: 'kcal', label: 'Ккал' },
+  { k: 'protein', label: 'Б' },
+  { k: 'fat', label: 'Ж' },
+  { k: 'carbs', label: 'В' },
+]
 
 type Row = Product & { dish_ingredients: { count: number }[] }
 
@@ -18,7 +28,7 @@ export default function Products() {
   const [name, setName] = useState('')
   const [newCat, setNewCat] = useState('')
   const [cat, setCat] = useState('')
-  const [edit, setEdit] = useState<Record<number, { name: string; category: string }>>({})
+  const [edit, setEdit] = useState<Record<number, Edit>>({})
 
   async function load() {
     try {
@@ -59,7 +69,13 @@ export default function Products() {
       toast(`Об'єднано з «${other.name}»`)
       return load()
     }
-    const { error } = await supabase.from('products').update({ name: v.name.trim(), category: v.category.trim() || null }).eq('id', p.id)
+    const vals = { kcal: numOrNull(v.kcal), protein: numOrNull(v.protein), fat: numOrNull(v.fat), carbs: numOrNull(v.carbs) }
+    if (Object.values(vals).some((x) => x != null && (Number.isNaN(x) || x < 0)))
+      return toast('КБЖВ — невід\'ємні числа (на 100 г)', 'err')
+    const { error } = await supabase
+      .from('products')
+      .update({ name: v.name.trim(), category: v.category.trim() || null, ...vals })
+      .eq('id', p.id)
     if (error) return toast(error.code === '23505' ? 'Продукт з такою назвою вже є' : error.message, 'err')
     setEdit(({ [p.id]: _, ...rest }) => rest)
     toast('Збережено — зміни застосовано в усіх техкартах')
@@ -90,7 +106,7 @@ export default function Products() {
         <div>
           <div className="eyebrow">Довідник</div>
           <h1>Продукти</h1>
-          <p>Єдині назви продуктів — щоб закупка коректно сумувала однакові позиції з різних страв.</p>
+          <p>Єдині назви продуктів — щоб закупка коректно сумувала однакові позиції з різних страв. КБЖВ вказано на 100 г їстівної частини.</p>
         </div>
       </div>
 
@@ -133,6 +149,9 @@ export default function Products() {
                 <tr>
                   <th>Продукт</th>
                   <th className="hide-sm">Категорія</th>
+                  {NUTR.map((x) => (
+                    <th key={x.k} className="num hide-sm" title={`${x.label} на 100 г`}>{x.label}</th>
+                  ))}
                   <th className="num">У стравах</th>
                   <th />
                 </tr>
@@ -156,6 +175,26 @@ export default function Products() {
                           p.category ? <span className="badge plain">{p.category}</span> : <span className="muted">—</span>
                         )}
                       </td>
+                      {NUTR.map((x) => (
+                        <td key={x.k} className="num hide-sm tnum">
+                          {e ? (
+                            <input
+                              className="w-num"
+                              style={{ width: 70 }}
+                              inputMode="decimal"
+                              aria-label={`${x.label} на 100 г`}
+                              value={e[x.k]}
+                              onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, [x.k]: ev.target.value } })}
+                            />
+                          ) : p[x.k] == null ? (
+                            <span className="warn-text">—</span>
+                          ) : x.k === 'kcal' ? (
+                            kcalFmt(Number(p.kcal))
+                          ) : (
+                            <span className="muted">{gFmt(Number(p[x.k]))}</span>
+                          )}
+                        </td>
+                      ))}
                       <td className="num">{used(p) ? <span className="badge plain">{used(p)}</span> : <span className="muted">0</span>}</td>
                       <td className="actions">
                         {e ? (
@@ -165,7 +204,19 @@ export default function Products() {
                           </>
                         ) : (
                           <>
-                            <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={() => setEdit({ ...edit, [p.id]: { name: p.name, category: p.category ?? '' } })}>
+                            <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={() =>
+                                setEdit({
+                                  ...edit,
+                                  [p.id]: {
+                                    name: p.name,
+                                    category: p.category ?? '',
+                                    kcal: p.kcal == null ? '' : String(p.kcal),
+                                    protein: p.protein == null ? '' : String(p.protein),
+                                    fat: p.fat == null ? '' : String(p.fat),
+                                    carbs: p.carbs == null ? '' : String(p.carbs),
+                                  },
+                                })
+                              }>
                               <Icon name="edit" size={17} />
                             </button>
                             {used(p) === 0 && (
