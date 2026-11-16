@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { supabase } from './lib/supabase'
+import { passwordRecovery, supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
@@ -9,12 +9,15 @@ import Dishes from './pages/Dishes'
 import DishEdit from './pages/DishEdit'
 import Products from './pages/Products'
 import Team from './pages/Team'
+import NewPassword from './pages/NewPassword'
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   // undefined — перевіряємо; null — не в команді; інакше роль
   const [role, setRole] = useState<'admin' | 'member' | null | undefined>(undefined)
   const email = session?.user.email?.toLowerCase() ?? ''
+  const recovery = useSyncExternalStore(passwordRecovery.subscribe, passwordRecovery.get)
+  const [changingPw, setChangingPw] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -40,6 +43,17 @@ export default function App() {
 
   if (session === undefined) return <div className="center muted">Завантаження…</div>
   if (!session) return <Login />
+  if (recovery || changingPw)
+    return (
+      <NewPassword
+        email={session.user.email}
+        onDone={() => {
+          passwordRecovery.clear()
+          setChangingPw(false)
+        }}
+        onCancel={recovery ? undefined : () => setChangingPw(false)}
+      />
+    )
   if (role === undefined) return <div className="center muted">Перевірка доступу…</div>
   if (role === null)
     return (
@@ -70,6 +84,7 @@ export default function App() {
         </nav>
         <div className="user">
           <span className="muted small">{session.user.email}</span>
+          <button className="ghost" onClick={() => setChangingPw(true)}>Змінити пароль</button>
           <button className="ghost" onClick={() => supabase.auth.signOut()}>Вийти</button>
         </div>
       </header>
