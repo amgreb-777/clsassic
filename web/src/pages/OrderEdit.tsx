@@ -5,6 +5,8 @@ import { STATUS_LABEL, type Dish, type Ingredient, type Order, type OrderStatus,
 import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
+import CategoryChips from '../components/CategoryChips'
+import { catOf, categoryCounts, dishMatches } from '../lib/search'
 
 type Tab = 'menu' | 'purchase' | 'breakdown'
 
@@ -314,17 +316,12 @@ function MenuTab(props: {
   const { dishes, selected, items, guests, onQty, onRemove } = props
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
-  const cats = useMemo(() => {
-    const c = new Map<string, number>()
-    for (const d of dishes) if (d.is_active) c.set(d.category ?? 'Без категорії', (c.get(d.category ?? 'Без категорії') ?? 0) + 1)
-    return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0], 'uk'))
-  }, [dishes])
-  const list = dishes.filter(
-    (d) =>
-      d.is_active &&
-      (!cat || (d.category ?? 'Без категорії') === cat) &&
-      (!q || d.name.toLowerCase().includes(q.toLowerCase())),
-  )
+  const active = useMemo(() => dishes.filter((d) => d.is_active), [dishes])
+  const cats = useMemo(() => categoryCounts(active, q), [active, q])
+  // якщо обрана категорія зникла з результатів пошуку — показуємо всі
+  const effCat = cat && cats.some(([c]) => c === cat) ? cat : ''
+  const found = cats.reduce((s, [, n]) => s + n, 0)
+  const list = active.filter((d) => (!effCat || catOf(d) === effCat) && dishMatches(d, q))
   const num = (raw: string) => Number(raw.replace(',', '.')) || 0
   const commit = (id: number, v: string) => (num(v) > 0 ? onQty(id, v, true) : onRemove(id))
 
@@ -333,18 +330,11 @@ function MenuTab(props: {
       <section className="card sticky-col" aria-label="Каталог страв">
         <div className="card-head">
           <h3>Каталог страв</h3>
-          <span className="muted small">{list.length} з {dishes.filter((d) => d.is_active).length}</span>
+          <span className="muted small">{list.length} з {active.length}</span>
         </div>
         <div className="stack">
           <SearchInput value={q} onChange={setQ} placeholder="Знайти страву…" />
-          <div className="chips">
-            <button className={!cat ? 'chip active' : 'chip'} onClick={() => setCat('')}>Усі</button>
-            {cats.map(([c, n]) => (
-              <button key={c} className={cat === c ? 'chip active' : 'chip'} onClick={() => setCat(c === cat ? '' : c)}>
-                {c}<span className="count">{n}</span>
-              </button>
-            ))}
-          </div>
+          <CategoryChips cats={cats} value={effCat} onChange={setCat} total={found} />
           <ul className="dish-list">
             {list.map((d) => {
               const inOrder = items[d.id] !== undefined
@@ -364,7 +354,11 @@ function MenuTab(props: {
                 </li>
               )
             })}
-            {list.length === 0 && <li className="muted" style={{ padding: 16 }}>Нічого не знайдено</li>}
+            {list.length === 0 && (
+              <li className="muted" style={{ padding: 16 }}>
+                Нічого не знайдено{q ? ` за запитом «${q}»` : ''}. Спробуйте іншу назву або категорію.
+              </li>
+            )}
           </ul>
         </div>
       </section>

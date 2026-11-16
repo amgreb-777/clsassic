@@ -512,3 +512,7 @@ tr.inactive td { opacity: 0.55; }
   .summary-bar .btn .btn-text { display: none; }
   .page-head .save-state { width: 100%; }
 }
+/* Чипи категорій з переносом — усі групи доступні */
+.chips.wrap { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
+.chip.more { border-style: dashed; color: var(--gold-ink); }
+.chip.more:hover { border-color: var(--gold); }
