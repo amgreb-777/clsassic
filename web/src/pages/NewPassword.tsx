@@ -2,7 +2,19 @@ import { useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
 /** Встановлення нового пароля: після переходу з листа або зі сторінки «Змінити пароль». */
-export default function NewPassword({ email, onDone, onCancel }: { email?: string; onDone: () => void; onCancel?: () => void }) {
+export default function NewPassword({
+  email,
+  note,
+  afterSave,
+  onDone,
+  onCancel,
+}: {
+  email?: string
+  note?: string
+  afterSave?: () => Promise<void>
+  onDone: () => void
+  onCancel?: () => void
+}) {
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
   const [busy, setBusy] = useState(false)
@@ -12,16 +24,25 @@ export default function NewPassword({ email, onDone, onCancel }: { email?: strin
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (pw !== pw2) return setError('Паролі не збігаються')
+    if (pw.length < 8) return setError('Пароль закороткий — мінімум 8 символів')
     setBusy(true)
     setError(null)
     const { error } = await supabase.auth.updateUser({ password: pw })
+    if (!error && afterSave) {
+      try {
+        await afterSave()
+      } catch (e) {
+        setBusy(false)
+        return setError(e instanceof Error ? e.message : String(e))
+      }
+    }
     setBusy(false)
     if (error)
       return setError(
         /should be different/i.test(error.message)
           ? 'Новий пароль має відрізнятися від старого'
           : /at least/i.test(error.message)
-            ? 'Пароль закороткий — мінімум 6 символів'
+            ? 'Пароль закороткий — мінімум 8 символів'
             : error.message,
       )
     setDone(true)
@@ -35,6 +56,7 @@ export default function NewPassword({ email, onDone, onCancel }: { email?: strin
           <span>Новий пароль</span>
         </div>
         {email && <p className="muted">Акаунт: {email}</p>}
+        {note && !done && <div className="alert warn">{note}</div>}
         {done ? (
           <>
             <div className="alert ok">Пароль змінено.</div>
@@ -44,11 +66,11 @@ export default function NewPassword({ email, onDone, onCancel }: { email?: strin
           <>
             <label>
               Новий пароль
-              <input type="password" required minLength={6} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
+              <input type="password" required minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
             </label>
             <label>
               Повторіть пароль
-              <input type="password" required minLength={6} value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
+              <input type="password" required minLength={8} value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
             </label>
             {error && <div className="alert err">{error}</div>}
             <button className="primary" disabled={busy}>{busy ? '…' : 'Зберегти пароль'}</button>
