@@ -1,9 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { fetchAll, supabase } from '../lib/supabase'
 import type { Product } from '../lib/types'
 import { errText } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useConfirm, useToast } from '../components/ui'
+import CategoryChips from '../components/CategoryChips'
+import { catOf, categoryCounts, dishMatches } from '../lib/search'
 
 type Row = Product & { dish_ingredients: { count: number }[] }
 
@@ -14,6 +16,8 @@ export default function Products() {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'unused'>('all')
   const [name, setName] = useState('')
+  const [newCat, setNewCat] = useState('')
+  const [cat, setCat] = useState('')
   const [edit, setEdit] = useState<Record<number, { name: string; category: string }>>({})
 
   async function load() {
@@ -30,10 +34,11 @@ export default function Products() {
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    const { error } = await supabase.from('products').insert({ name: name.trim() })
+    const { error } = await supabase.from('products').insert({ name: name.trim(), category: newCat.trim() || null })
     if (error) return toast(error.code === '23505' ? 'Такий продукт уже є' : error.message, 'err')
     toast(`«${name.trim()}» додано`)
     setName('')
+    setNewCat('')
     load()
   }
 
@@ -42,7 +47,7 @@ export default function Products() {
     const { error } = await supabase.from('products').update({ name: v.name.trim(), category: v.category.trim() || null }).eq('id', p.id)
     if (error) return toast(error.code === '23505' ? 'Продукт з такою назвою вже є' : error.message, 'err')
     setEdit(({ [p.id]: _, ...rest }) => rest)
-    toast('Збережено — назва оновилась у всіх техкартах')
+    toast('Збережено — зміни застосовано в усіх техкартах')
     load()
   }
 
@@ -56,10 +61,13 @@ export default function Products() {
   }
 
   const used = (p: Row) => p.dish_ingredients[0]?.count ?? 0
+  const base = useMemo(() => (rows ?? []).filter((p) => filter === 'all' || used(p) === 0), [rows, filter])
   const unusedCount = (rows ?? []).filter((p) => used(p) === 0).length
-  const list = (rows ?? []).filter(
-    (p) => (!q || p.name.toLowerCase().includes(q.toLowerCase())) && (filter === 'all' || used(p) === 0),
-  )
+  const cats = useMemo(() => categoryCounts(base, q), [base, q])
+  const allCats = useMemo(() => [...new Set((rows ?? []).map((p) => p.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'uk')), [rows])
+  const effCat = cat && cats.some(([c]) => c === cat) ? cat : ''
+  const found = cats.reduce((s, [, n]) => s + n, 0)
+  const list = base.filter((p) => (!effCat || catOf(p) === effCat) && dishMatches(p, q))
 
   return (
     <div className="page">
@@ -76,16 +84,28 @@ export default function Products() {
           <span>Новий продукт</span>
           <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Напр.: Сир Брі" />
         </label>
+        <label className="field" style={{ minWidth: 220 }}>
+          <span>Категорія</span>
+          <input list="product-cats" value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Оберіть або введіть" />
+        </label>
         <button className="btn primary"><Icon name="plus" size={18} /> Додати</button>
       </form>
 
       <section className="card flush">
-        <div className="row wrap" style={{ padding: 16, gap: 12, borderBottom: '1px solid var(--line)' }}>
-          <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт…" />
-          <div className="chips">
-            <button className={filter === 'all' ? 'chip active' : 'chip'} onClick={() => setFilter('all')}>Усі<span className="count">{rows?.length ?? 0}</span></button>
-            <button className={filter === 'unused' ? 'chip active' : 'chip'} onClick={() => setFilter('unused')}>Не використовуються<span className="count">{unusedCount}</span></button>
+        <datalist id="product-cats">
+          {allCats.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <div className="stack" style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
+          <div className="row wrap" style={{ gap: 12 }}>
+            <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт або категорію…" />
+            <label className="check small">
+              <input type="checkbox" checked={filter === 'unused'} onChange={(e) => setFilter(e.target.checked ? 'unused' : 'all')} />
+              Лише ті, що не використовуються ({unusedCount})
+            </label>
           </div>
+          <CategoryChips cats={cats} value={effCat} onChange={setCat} total={found} />
         </div>
         {!rows ? (
           <div style={{ padding: 16 }}><Skeleton rows={8} /></div>
@@ -116,9 +136,9 @@ export default function Products() {
                       </td>
                       <td className="hide-sm">
                         {e ? (
-                          <input value={e.category} aria-label="Категорія" placeholder="Напр.: Сири" onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, category: ev.target.value } })} />
+                          <input list="product-cats" value={e.category} aria-label="Категорія" placeholder="Оберіть або введіть" onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, category: ev.target.value } })} />
                         ) : (
-                          <span className="muted">{p.category ?? '—'}</span>
+                          p.category ? <span className="badge plain">{p.category}</span> : <span className="muted">—</span>
                         )}
                       </td>
                       <td className="num">{used(p) ? <span className="badge plain">{used(p)}</span> : <span className="muted">0</span>}</td>

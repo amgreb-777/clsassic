@@ -516,3 +516,9 @@ tr.inactive td { opacity: 0.55; }
 .chips.wrap { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
 .chip.more { border-style: dashed; color: var(--gold-ink); }
 .chip.more:hover { border-color: var(--gold); }
+/* Групи відділів у списку закупки */
+.group-row td { background: var(--surface-2); padding: 8px 12px; border-bottom: 1px solid var(--line); position: sticky; top: 37px; z-index: 1; }
+.group-row:hover { background: none; }
+.group-name { font-family: var(--font-display); font-weight: 600; font-size: 0.86rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
+.group-meta { float: right; display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media print { .group-row td { position: static; background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
