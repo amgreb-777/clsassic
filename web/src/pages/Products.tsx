@@ -110,12 +110,12 @@ export default function Products() {
         </div>
       </div>
 
-      <form className="card row wrap" style={{ gap: 12, alignItems: 'flex-end' }} onSubmit={add}>
+      <form className="card inline-form" onSubmit={add}>
         <label className="field grow">
           <span>Новий продукт</span>
           <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Напр.: Сир Брі" />
         </label>
-        <label className="field" style={{ minWidth: 220 }}>
+        <label className="field">
           <span>Категорія</span>
           <input list="product-cats" value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Оберіть або введіть" />
         </label>
@@ -129,7 +129,7 @@ export default function Products() {
           ))}
         </datalist>
         <div className="stack" style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
-          <div className="row wrap" style={{ gap: 12 }}>
+          <div className="toolbar">
             <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт або категорію…" />
             <label className="check small">
               <input type="checkbox" checked={filter === 'unused'} onChange={(e) => setFilter(e.target.checked ? 'unused' : 'all')} />
@@ -152,41 +152,81 @@ export default function Products() {
                   {NUTR.map((x) => (
                     <th key={x.k} className="num hide-sm" title={`${x.label} на 100 г`}>{x.label}</th>
                   ))}
-                  <th className="num">У стравах</th>
+                  <th className="num" title="У скількох стравах використовується">Страв</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {list.map((p) => {
                   const e = edit[p.id]
+                  const set = (patch: Partial<Edit>) => setEdit((cur) => ({ ...cur, [p.id]: { ...cur[p.id], ...patch } }))
+                  const cancel = () => setEdit(({ [p.id]: _, ...rest }) => rest)
+                  if (e)
+                    return (
+                      <tr key={p.id} className="edit-row">
+                        <td colSpan={8}>
+                          <form
+                            className="edit-form"
+                            onSubmit={(ev) => {
+                              ev.preventDefault()
+                              save(p)
+                            }}
+                            onKeyDown={(ev) => ev.key === 'Escape' && cancel()}
+                          >
+                            <label className="field wide">
+                              <span>Назва</span>
+                              <input autoFocus required value={e.name} onChange={(ev) => set({ name: ev.target.value })} />
+                            </label>
+                            <label className="field wide">
+                              <span>Категорія</span>
+                              <input list="product-cats" value={e.category} placeholder="Оберіть або введіть" onChange={(ev) => set({ category: ev.target.value })} />
+                            </label>
+                            {NUTR.map((x) => (
+                              <label key={x.k} className="field">
+                                <span>{x.k === 'kcal' ? 'Ккал' : x.k === 'protein' ? 'Білки, г' : x.k === 'fat' ? 'Жири, г' : 'Вуглев., г'}</span>
+                                <input className="tnum" inputMode="decimal" value={e[x.k]} aria-label={`${x.label} на 100 г`} onChange={(ev) => set({ [x.k]: ev.target.value })} />
+                              </label>
+                            ))}
+                            <div className="acts">
+                              <span className="muted small grow" style={{ alignSelf: 'center' }}>КБЖВ на 100 г · у стравах: {used(p)}</span>
+                              <button type="button" className="btn ghost" onClick={cancel}>Скасувати</button>
+                              <button className="btn primary"><Icon name="check" size={18} /> Зберегти</button>
+                            </div>
+                          </form>
+                        </td>
+                      </tr>
+                    )
+                  const startEdit = () =>
+                    setEdit({
+                      ...edit,
+                      [p.id]: {
+                        name: p.name,
+                        category: p.category ?? '',
+                        kcal: p.kcal == null ? '' : String(p.kcal),
+                        protein: p.protein == null ? '' : String(p.protein),
+                        fat: p.fat == null ? '' : String(p.fat),
+                        carbs: p.carbs == null ? '' : String(p.carbs),
+                      },
+                    })
                   return (
                     <tr key={p.id}>
                       <td>
-                        {e ? (
-                          <input autoFocus value={e.name} aria-label="Назва" onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, name: ev.target.value } })} onKeyDown={(ev) => ev.key === 'Enter' && save(p)} />
-                        ) : (
-                          <span className="strong" style={{ fontWeight: 500 }}>{p.name}</span>
-                        )}
+                        <span className="strong" style={{ fontWeight: 500 }}>{p.name}</span>
+                        <div className="sub-sm show-sm">
+                          {p.category ?? 'Без категорії'} ·{' '}
+                          {p.kcal == null ? (
+                            <span className="warn-text">КБЖВ не задано</span>
+                          ) : (
+                            `${kcalFmt(Number(p.kcal))} ккал · Б ${gFmt(Number(p.protein ?? 0))} · Ж ${gFmt(Number(p.fat ?? 0))} · В ${gFmt(Number(p.carbs ?? 0))}`
+                          )}
+                        </div>
                       </td>
                       <td className="hide-sm">
-                        {e ? (
-                          <input list="product-cats" value={e.category} aria-label="Категорія" placeholder="Оберіть або введіть" onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, category: ev.target.value } })} />
-                        ) : (
-                          p.category ? <span className="badge plain">{p.category}</span> : <span className="muted">—</span>
-                        )}
+                        {p.category ? <span className="badge plain">{p.category}</span> : <span className="muted">—</span>}
                       </td>
                       {NUTR.map((x) => (
                         <td key={x.k} className="num hide-sm tnum">
-                          {e ? (
-                            <input
-                              className="w-num"
-                              style={{ width: 70 }}
-                              inputMode="decimal"
-                              aria-label={`${x.label} на 100 г`}
-                              value={e[x.k]}
-                              onChange={(ev) => setEdit({ ...edit, [p.id]: { ...e, [x.k]: ev.target.value } })}
-                            />
-                          ) : p[x.k] == null ? (
+                          {p[x.k] == null ? (
                             <span className="warn-text">—</span>
                           ) : x.k === 'kcal' ? (
                             kcalFmt(Number(p.kcal))
@@ -197,34 +237,13 @@ export default function Products() {
                       ))}
                       <td className="num">{used(p) ? <span className="badge plain">{used(p)}</span> : <span className="muted">0</span>}</td>
                       <td className="actions">
-                        {e ? (
-                          <>
-                            <button className="btn primary sm" onClick={() => save(p)}>Зберегти</button>
-                            <button className="btn ghost sm" onClick={() => setEdit(({ [p.id]: _, ...rest }) => rest)}>Скасувати</button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={() =>
-                                setEdit({
-                                  ...edit,
-                                  [p.id]: {
-                                    name: p.name,
-                                    category: p.category ?? '',
-                                    kcal: p.kcal == null ? '' : String(p.kcal),
-                                    protein: p.protein == null ? '' : String(p.protein),
-                                    fat: p.fat == null ? '' : String(p.fat),
-                                    carbs: p.carbs == null ? '' : String(p.carbs),
-                                  },
-                                })
-                              }>
-                              <Icon name="edit" size={17} />
-                            </button>
-                            {used(p) === 0 && (
-                              <button className="btn ghost icon sm danger" aria-label={`Видалити «${p.name}»`} title="Видалити" onClick={() => remove(p)}>
-                                <Icon name="trash" size={17} />
-                              </button>
-                            )}
-                          </>
+                        <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={startEdit}>
+                          <Icon name="edit" size={17} />
+                        </button>
+                        {used(p) === 0 && (
+                          <button className="btn ghost icon sm danger" aria-label={`Видалити «${p.name}»`} title="Видалити" onClick={() => remove(p)}>
+                            <Icon name="trash" size={17} />
+                          </button>
                         )}
                       </td>
                     </tr>

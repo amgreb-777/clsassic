@@ -59,7 +59,7 @@ export default function Dishes() {
       </div>
 
       {adding && (
-        <form className="card row wrap" style={{ gap: 12, alignItems: 'flex-end' }} onSubmit={create}>
+        <form className="card inline-form" onSubmit={create}>
           <label className="field grow">
             <span>Назва нової страви</span>
             <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Напр.: Брускета з томатами" />
@@ -107,6 +107,7 @@ export default function Dishes() {
                       <Link to={`/dishes/${d.id}`} className="row-link" onClick={(e) => e.stopPropagation()}>{d.name}</Link>
                       {!d.is_active && <span className="tag">прихована</span>}
                       {d.ingredients_count === 0 && <span className="tag">без техкарти</span>}
+                      <div className="sub-sm show-sm">{d.category ?? 'Без категорії'} · {d.ingredients_count} інгр.</div>
                     </td>
                     <td className="muted hide-sm">{d.category ?? '—'}</td>
                     <td className="num">{fmt(d.portion_weight_g)}</td>
