@@ -5,7 +5,7 @@ import { errText } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useConfirm, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
-import { catOf, categoryCounts, dishMatches } from '../lib/search'
+import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
 
 type Row = Product & { dish_ingredients: { count: number }[] }
 
@@ -44,6 +44,21 @@ export default function Products() {
 
   async function save(p: Row) {
     const v = edit[p.id]
+    // Перейменування на назву, яка вже є, — пропонуємо об'єднати дублі
+    const other = (rows ?? []).find((x) => x.id !== p.id && norm(x.name) === norm(v.name))
+    if (other) {
+      const ok = await confirm({
+        title: 'Такий продукт уже є',
+        text: `«${other.name}» вже є в довіднику. Об'єднати «${p.name}» з ним? Усі техкарти перейдуть на «${other.name}», кількості в стравах, де є обидва, складуться.`,
+        ok: "Об'єднати",
+      })
+      if (!ok) return
+      const { error } = await supabase.rpc('merge_products', { p_keep: other.id, p_dup: p.id })
+      if (error) return toast(error.message, 'err')
+      setEdit(({ [p.id]: _, ...rest }) => rest)
+      toast(`Об'єднано з «${other.name}»`)
+      return load()
+    }
     const { error } = await supabase.from('products').update({ name: v.name.trim(), category: v.category.trim() || null }).eq('id', p.id)
     if (error) return toast(error.code === '23505' ? 'Продукт з такою назвою вже є' : error.message, 'err')
     setEdit(({ [p.id]: _, ...rest }) => rest)
