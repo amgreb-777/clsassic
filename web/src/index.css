@@ -536,3 +536,114 @@ tr.inactive td { opacity: 0.55; }
 .macro-bar .c { background: #b9744e; }
 .macro-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--ink-2); }
 .kbzv { font-size: 0.78rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* ---------- Адаптивність: мобільна версія ---------- */
+/* Колонка сторінки не розтягується вмістом (чипи, таблиці) — без горизонтального скролу */
+.page { grid-template-columns: minmax(0, 1fr); }
+.page > *, .stack > * { min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.toolbar > .input-icon { flex: 1 1 260px; }
+.toolbar > .chips { flex: 0 1 auto; min-width: 0; }
+.toolbar .tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.inline-form > .field { flex: 1 1 200px; }
+.inline-form > .field.grow { flex: 2 1 260px; }
+.show-sm { display: none; }
+.stats.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+table.edit .c-product { min-width: 200px; }
+table.edit .c-unit select { width: 76px; }
+.edit-row td { background: var(--gold-soft); }
+.edit-form { display: grid; gap: 12px; grid-template-columns: 2fr 2fr repeat(4, minmax(70px, 0.7fr)); align-items: end; }
+.edit-form .acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.sub-sm { font-size: 0.78rem; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* Сенсорні екрани: більші цілі для пальця */
+@media (pointer: coarse) {
+  .btn.sm { min-height: 40px; }
+  .btn.icon.sm { width: 40px; }
+  .chip { min-height: 38px; }
+  .add-btn { width: 42px; height: 42px; }
+  .stepper button { width: 40px; height: 42px; }
+  .stepper input { min-height: 42px; }
+}
+
+@media (max-width: 900px) {
+  /* 16px — iOS не збільшує сторінку при фокусі на полі */
+  :where(input:not([type='checkbox']):not([type='radio']), select, textarea) { font-size: 16px; }
+  html { -webkit-tap-highlight-color: transparent; }
+  .page { gap: 16px; }
+}
+
+@media (max-width: 700px) {
+  .show-sm { display: block; }
+  /* Меню замовлення: рядок-картка (назва зверху, кількість і вага знизу) */
+  .menu-table thead { display: none; }
+  .menu-table tbody tr { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .menu-table tbody tr:last-child { border-bottom: 0; }
+  .menu-table td { padding: 0; border: 0; }
+  .menu-table td.hide-sm { display: none; }
+  .menu-table .c-name { grid-column: 1 / -1; }
+  .menu-table .c-qty .row { justify-content: flex-start !important; }
+  .menu-table .c-weight { text-align: right; }
+  .menu-table .c-weight::after { content: ' кг'; font-weight: 400; color: var(--muted); }
+
+  /* Техкарта: кожен інгредієнт — компактна картка з підписаними полями */
+  table.edit thead { display: none; }
+  table.edit tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr) auto; gap: 8px 10px; align-items: end; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  table.edit td { padding: 0; border: 0; min-width: 0; text-align: left; }
+  table.edit .c-idx { display: none; }
+  table.edit .c-product { grid-column: 1 / -1; min-width: 0; }
+  table.edit td[data-label]::before { content: attr(data-label); display: block; font-size: 0.74rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+  table.edit .w-num, table.edit .c-unit select { width: 100%; }
+  table.edit .actions { align-self: end; }
+
+  /* Закупка: більші чекбокси, назва займає місце номера */
+  table.purchase input[type='checkbox'] { width: 24px; height: 24px; }
+  table.purchase td:first-child { padding-left: 14px; }
+
+  .edit-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .edit-form .wide { grid-column: 1 / -1; }
+  .edit-form .acts .btn { flex: 1; }
+}
+
+@media (max-width: 600px) {
+  .page-head > * { flex-basis: 100%; }
+  .page-head > .btn, .page-head .head-actions { width: 100%; }
+  .page-head .head-actions { justify-content: space-between; }
+  .card { padding: 16px; border-radius: var(--r); }
+  .card-head { margin-bottom: 12px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stats.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .stat { padding: 12px 14px; }
+  .stat .v { font-size: 1.35rem; }
+  .stats.three .stat { padding: 10px 12px; }
+  .stats.three .stat .v { font-size: 1.15rem; }
+  /* Горизонтальні чипи статусів — на всю ширину екрана, гортаються пальцем */
+  .toolbar > .chips:not(.wrap) { flex: 1 1 100%; margin: 0 -16px; padding: 0 16px 2px; }
+  .toolbar .tools { margin-left: auto; }
+  .inline-form > .btn { flex: 1 1 100%; }
+  .order-grid { grid-template-columns: 1fr; gap: 12px; }
+  .order-card { padding: 16px; }
+  .split { gap: 14px; }
+  .dish-item { padding: 10px 6px; }
+  .summary-bar { border-radius: var(--r); }
+  .breakdown h4 { flex-wrap: wrap; }
+  .edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  th { white-space: normal; line-height: 1.25; vertical-align: bottom; }
+  .nutr-table td, .nutr-table th { padding: 9px 6px; }
+  .nutr-table td:first-child, .nutr-table th:first-child { padding-left: 0; }
+  .nutr-table td:last-child, .nutr-table th:last-child { padding-right: 0; }
+}
+@media (max-width: 700px) {
+  th.num { white-space: normal; }
+  .edit-form .acts { flex-wrap: wrap; }
+  .edit-form .acts > .muted { flex: 1 1 100%; }
+}
+@media (max-width: 600px) {
+  .toolbar .tools { flex: 1 1 100%; margin-left: 0; }
+  .toolbar .tools .btn { flex: 1; }
+  .toolbar > .check { min-height: 36px; }
+}
+@media (max-width: 420px) { .nutr-table td { font-size: 0.9rem; } }

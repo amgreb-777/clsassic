@@ -394,7 +394,7 @@ function MenuTab(props: {
           <Empty icon="dishes" title="Меню порожнє" text="Додайте страви з каталогу — кнопка «+» біля назви." />
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="menu-table">
               <thead>
                 <tr>
                   <th>Страва</th>
@@ -408,11 +408,11 @@ function MenuTab(props: {
               <tbody>
                 {selected.map(({ dish, raw }) => (
                   <tr key={dish.id} className="selected-row">
-                    <td>
+                    <td className="c-name">
                       {dish.name}
                       <div className="small muted">{dish.category}</div>
                     </td>
-                    <td className="num">
+                    <td className="num c-qty">
                       <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
                         <Stepper label={dish.name} value={raw} onChange={(v) => onQty(dish.id, v)} onCommit={(v) => commit(dish.id, v)} />
                         {guests && num(raw) !== guests ? (
@@ -423,7 +423,7 @@ function MenuTab(props: {
                       </div>
                     </td>
                     <td className="num hide-sm">{fmt(dish.portion_weight_g)}</td>
-                    <td className="num strong">{fmt((num(raw) * (dish.portion_weight_g ?? 0)) / 1000)}</td>
+                    <td className="num strong c-weight">{fmt((num(raw) * (dish.portion_weight_g ?? 0)) / 1000)}</td>
                     <td className="num hide-sm muted" title={nutr.get(dish.id) ? `На порцію: ${kcalFmt(nutr.get(dish.id)!.kcal)} ккал` : undefined}>
                       {nutr.get(dish.id) ? kcalFmt(num(raw) * nutr.get(dish.id)!.kcal) : '—'}
                     </td>
@@ -549,7 +549,7 @@ function PurchaseTab({ order }: { order: Order }) {
 
   return (
     <>
-      <div className="stats no-print">
+      <div className="stats three no-print">
         <div className="stat"><div className="k">Позицій у списку</div><div className="v">{rows.length}</div></div>
         <div className="stat"><div className="k">Вагових продуктів, брутто</div><div className="v">{qty(totalGross, 'г', true)}</div></div>
         <div className="stat">
@@ -560,12 +560,12 @@ function PurchaseTab({ order }: { order: Order }) {
       </div>
 
       <section className="card flush">
-        <div className="row wrap no-print" style={{ padding: 16, gap: 12, borderBottom: '1px solid var(--line)' }}>
+        <div className="toolbar no-print" style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
           <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт або відділ…" />
           <label className="check small"><input type="checkbox" checked={inKg} onChange={(e) => setInKg(e.target.checked)} /> у кг</label>
           <label className="check small"><input type="checkbox" checked={onlyLeft} onChange={(e) => setOnlyLeft(e.target.checked)} /> лише некуплені</label>
           <label className="check small"><input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} /> за відділами</label>
-          <div className="row">
+          <div className="tools">
             {boughtCount > 0 && (
               <button className="btn ghost sm" onClick={() => save(new Set())} title="Зняти всі позначки">Скинути</button>
             )}
@@ -578,7 +578,7 @@ function PurchaseTab({ order }: { order: Order }) {
             <thead>
               <tr>
                 <th className="no-print" style={{ width: 44 }}><span className="sr-only">Куплено</span></th>
-                <th style={{ width: 44 }}>№</th>
+                <th className="hide-sm" style={{ width: 44 }}>№</th>
                 <th>Продукт</th>
                 <th className="num">Закупити (брутто)</th>
                 <th className="num hide-sm">Нетто</th>
@@ -606,7 +606,7 @@ function PurchaseTab({ order }: { order: Order }) {
                         <td className="no-print">
                           <input type="checkbox" checked={done} onChange={() => toggle(k(r))} aria-label={`Куплено: ${r.product}`} />
                         </td>
-                        <td className="muted tnum">{numberOf.get(k(r))}</td>
+                        <td className="muted tnum hide-sm">{numberOf.get(k(r))}</td>
                         <td>
                           <span className="pname">{r.product}</span>
                           {r.unit !== 'г' && <span className="tag">{r.unit}</span>}
@@ -629,7 +629,7 @@ function PurchaseTab({ order }: { order: Order }) {
             <tfoot>
               <tr>
                 <td className="no-print" />
-                <td />
+                <td className="hide-sm" />
                 <td>Разом (вагові)</td>
                 <td className="num">{qty(totalGross, 'г', inKg)}</td>
                 <td className="num hide-sm">{qty(totalNet, 'г', inKg)}</td>

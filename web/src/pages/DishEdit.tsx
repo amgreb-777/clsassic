@@ -163,7 +163,7 @@ export default function DishEdit() {
             <div className="eyebrow">{dish.category || 'Без категорії'}</div>
             <h1>{dish.name || 'Нова страва'}</h1>
           </div>
-          <div className="row">
+          <div className="row head-actions">
             <button className="btn ghost danger" onClick={remove}><Icon name="trash" size={18} /> Видалити</button>
             <button className="btn primary" onClick={save} disabled={busy || !dirty}>
               <Icon name="check" size={18} /> {busy ? 'Збереження…' : dirty ? 'Зберегти' : 'Збережено'}
@@ -209,7 +209,7 @@ export default function DishEdit() {
             <h3>Технологічна карта</h3>
             <p>Склад на 1 порцію. Нові назви продуктів автоматично додаються в довідник.</p>
           </div>
-          <div className="stats" style={{ gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))' }}>
+          <div className="stats three">
             <div className="stat"><div className="k">Вихід, нетто</div><div className="v">{fmt(netAll)} г</div></div>
             <div className="stat">
               <div className="k">Порція</div>
@@ -250,22 +250,22 @@ export default function DishEdit() {
                 const suspicious = l.unit === 'г' && n(l.net) > n(l.gross) && n(l.gross) > 0
                 return (
                   <tr key={l.key}>
-                    <td className="muted tnum">{i + 1}</td>
-                    <td style={{ minWidth: 200 }}>
+                    <td className="muted tnum c-idx">{i + 1}</td>
+                    <td className="c-product" data-label={`Продукт ${i + 1}`}>
                       <input list="products" value={l.product} onChange={(e) => upd(l.key, { product: e.target.value })} aria-label={`Продукт ${i + 1}`} placeholder="Почніть вводити назву…" />
                       {isNew && <span className="tag" style={{ marginTop: 4, marginLeft: 0 }}>новий продукт</span>}
                     </td>
-                    <td className="num">
+                    <td className="num" data-label="Брутто">
                       <input className="w-num" inputMode="decimal" value={l.gross} onChange={(e) => upd(l.key, { gross: e.target.value })} aria-label="Брутто" />
                     </td>
-                    <td>
-                      <select value={l.unit} onChange={(e) => upd(l.key, { unit: e.target.value as Unit })} aria-label="Одиниця" style={{ width: 76 }}>
+                    <td className="c-unit" data-label="Од.">
+                      <select value={l.unit} onChange={(e) => upd(l.key, { unit: e.target.value as Unit })} aria-label="Одиниця">
                         <option value="г">г</option>
                         <option value="шт">шт</option>
                         <option value="л">л</option>
                       </select>
                     </td>
-                    <td className="num">
+                    <td className="num" data-label="Нетто, г">
                       <input
                         className={suspicious ? 'w-num warn-input' : 'w-num'}
                         title={suspicious ? 'Нетто більше за брутто — перевірте (норма для круп/бобових після варіння)' : undefined}

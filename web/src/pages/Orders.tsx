@@ -162,7 +162,7 @@ export default function Orders() {
       )}
 
       {rows && rows.length > 0 && (
-        <div className="row wrap" style={{ gap: 12 }}>
+        <div className="toolbar">
           <SearchInput value={q} onChange={setQ} placeholder="Пошук за назвою…" />
           <div className="chips" role="tablist" aria-label="Фільтр за статусом">
             <button className={!status ? 'chip active' : 'chip'} onClick={() => setStatus('')}>
