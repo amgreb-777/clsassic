@@ -1,7 +1,7 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { passwordRecovery, supabase } from './lib/supabase'
+import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
@@ -16,8 +16,8 @@ export default function App() {
   // undefined — перевіряємо; null — не в команді; інакше роль
   const [role, setRole] = useState<'admin' | 'member' | null | undefined>(undefined)
   const email = session?.user.email?.toLowerCase() ?? ''
-  const recovery = useSyncExternalStore(passwordRecovery.subscribe, passwordRecovery.get)
   const [changingPw, setChangingPw] = useState(false)
+  const mustChange = session?.user.app_metadata?.must_change_password === true
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -43,15 +43,25 @@ export default function App() {
 
   if (session === undefined) return <div className="center muted">Завантаження…</div>
   if (!session) return <Login />
-  if (recovery || changingPw)
+  if (mustChange || changingPw)
     return (
       <NewPassword
         email={session.user.email}
-        onDone={() => {
-          passwordRecovery.clear()
+        note={mustChange ? 'Ви увійшли з тимчасовим паролем від адміністратора. Задайте власний пароль.' : undefined}
+        afterSave={
+          mustChange
+            ? async () => {
+                const { error } = await supabase.rpc('clear_must_change_password')
+                if (error) throw new Error(error.message)
+              }
+            : undefined
+        }
+        onDone={async () => {
           setChangingPw(false)
+          // оновлюємо токен, щоб прибрати прапорець тимчасового пароля з сесії
+          if (mustChange) await supabase.auth.refreshSession()
         }}
-        onCancel={recovery ? undefined : () => setChangingPw(false)}
+        onCancel={mustChange ? undefined : () => setChangingPw(false)}
       />
     )
   if (role === undefined) return <div className="center muted">Перевірка доступу…</div>

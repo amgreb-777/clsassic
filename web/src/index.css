@@ -155,3 +155,9 @@ table.edit td input:not(.w-num) { width: 100%; min-width: 180px; }
   .topbar { gap: 8px; padding: 8px 16px; }
   .user .muted { display: none; }
 }
+.center-text { text-align: center; margin: 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.pw-field { display: flex; gap: 4px; align-items: center; }
+.pw-field input { width: 130px; }
+.issued { border-color: var(--accent); background: var(--accent-soft); }
+.creds { margin: 10px 0; display: grid; gap: 4px; color: var(--text); }
