@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { supabase } from './lib/supabase'
+import Icon, { type IconName } from './components/Icon'
+import { Logo, useTheme } from './components/ui'
 import Login from './pages/Login'
 import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
@@ -11,6 +13,13 @@ import Products from './pages/Products'
 import Team from './pages/Team'
 import NewPassword from './pages/NewPassword'
 
+const NAV: { to: string; label: string; icon: IconName }[] = [
+  { to: '/orders', label: 'Замовлення', icon: 'orders' },
+  { to: '/dishes', label: 'Страви', icon: 'dishes' },
+  { to: '/products', label: 'Продукти', icon: 'products' },
+  { to: '/team', label: 'Команда', icon: 'team' },
+]
+
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   // undefined — перевіряємо; null — не в команді; інакше роль
@@ -18,6 +27,8 @@ export default function App() {
   const email = session?.user.email?.toLowerCase() ?? ''
   const [changingPw, setChangingPw] = useState(false)
   const mustChange = session?.user.app_metadata?.must_change_password === true
+  const { isDark, toggle } = useTheme()
+  const location = useLocation()
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -41,7 +52,17 @@ export default function App() {
     }
   }, [email])
 
-  if (session === undefined) return <div className="center muted">Завантаження…</div>
+  // Прокрутка вгору при зміні сторінки
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [location.pathname])
+
+  if (session === undefined)
+    return (
+      <div className="center-screen">
+        <div className="loader" aria-label="Завантаження" />
+      </div>
+    )
   if (!session) return <Login />
   if (mustChange || changingPw)
     return (
@@ -64,41 +85,77 @@ export default function App() {
         onCancel={mustChange ? undefined : () => setChangingPw(false)}
       />
     )
-  if (role === undefined) return <div className="center muted">Перевірка доступу…</div>
+  if (role === undefined)
+    return (
+      <div className="center-screen">
+        <div className="loader" aria-label="Перевірка доступу" />
+      </div>
+    )
   if (role === null)
     return (
-      <div className="center">
-        <div className="card login">
-          <h3>Немає доступу</h3>
-          <p className="muted">
-            Акаунт <b>{session.user.email}</b> не входить до команди. Попросіть адміністратора додати цей email у
-            розділі «Команда».
+      <div className="center-screen">
+        <div className="card auth-card" style={{ padding: 28 }}>
+          <Logo />
+          <h1>Немає доступу</h1>
+          <p className="lead">
+            Акаунт <b>{session.user.email}</b> не входить до команди. Попросіть адміністратора створити вам акаунт.
           </p>
-          <button className="primary" onClick={() => supabase.auth.signOut()}>Вийти</button>
+          <button className="btn primary block" onClick={() => supabase.auth.signOut()}>
+            <Icon name="logout" size={18} /> Вийти
+          </button>
         </div>
       </div>
     )
 
+  const initial = (session.user.email ?? '?').slice(0, 1)
+
   return (
-    <div className="layout">
-      <header className="topbar no-print">
-        <div className="brand">
-          <span className="logo">C</span>
-          <span>Classic · Закупівля</span>
-        </div>
-        <nav>
-          <NavLink to="/orders">Замовлення</NavLink>
-          <NavLink to="/dishes">Страви</NavLink>
-          <NavLink to="/products">Продукти</NavLink>
-          <NavLink to="/team">Команда</NavLink>
+    <div className="app">
+      <aside className="sidebar" aria-label="Головне меню">
+        <Logo />
+        <nav className="nav">
+          {NAV.map((n) => (
+            <NavLink key={n.to} to={n.to}>
+              <Icon name={n.icon} /> {n.label}
+            </NavLink>
+          ))}
         </nav>
-        <div className="user">
-          <span className="muted small">{session.user.email}</span>
-          <button className="ghost" onClick={() => setChangingPw(true)}>Змінити пароль</button>
-          <button className="ghost" onClick={() => supabase.auth.signOut()}>Вийти</button>
+        <div className="sidebar-foot">
+          <div className="me">
+            <span className="avatar" aria-hidden="true">{initial}</span>
+            <div className="me-text">
+              <div className="me-email" title={session.user.email}>{session.user.email}</div>
+              <div className="small muted">{role === 'admin' ? 'Адміністратор' : 'Учасник'}</div>
+            </div>
+          </div>
+          <button className="btn ghost sm" style={{ justifyContent: 'flex-start' }} onClick={toggle}>
+            <Icon name={isDark ? 'sun' : 'moon'} size={18} /> {isDark ? 'Світла тема' : 'Темна тема'}
+          </button>
+          <button className="btn ghost sm" style={{ justifyContent: 'flex-start' }} onClick={() => setChangingPw(true)}>
+            <Icon name="key" size={18} /> Змінити пароль
+          </button>
+          <button className="btn ghost sm" style={{ justifyContent: 'flex-start' }} onClick={() => supabase.auth.signOut()}>
+            <Icon name="logout" size={18} /> Вийти
+          </button>
+        </div>
+      </aside>
+
+      <header className="mobile-top">
+        <Logo />
+        <div className="row">
+          <button className="btn ghost icon" aria-label={isDark ? 'Світла тема' : 'Темна тема'} onClick={toggle}>
+            <Icon name={isDark ? 'sun' : 'moon'} />
+          </button>
+          <button className="btn ghost icon" aria-label="Змінити пароль" onClick={() => setChangingPw(true)}>
+            <Icon name="key" />
+          </button>
+          <button className="btn ghost icon" aria-label="Вийти" onClick={() => supabase.auth.signOut()}>
+            <Icon name="logout" />
+          </button>
         </div>
       </header>
-      <main>
+
+      <main className="main" id="main">
         <Routes>
           <Route path="/" element={<Navigate to="/orders" replace />} />
           <Route path="/orders" element={<Orders />} />
@@ -110,6 +167,15 @@ export default function App() {
           <Route path="*" element={<Navigate to="/orders" replace />} />
         </Routes>
       </main>
+
+      <nav className="tabbar" aria-label="Навігація">
+        {NAV.map((n) => (
+          <NavLink key={n.to} to={n.to}>
+            <Icon name={n.icon} size={22} />
+            {n.label}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }

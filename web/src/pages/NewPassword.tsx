@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
+import AuthLayout from '../components/AuthLayout'
+import Icon from '../components/Icon'
+import { Alert, Logo } from '../components/ui'
 
-/** Встановлення нового пароля: після переходу з листа або зі сторінки «Змінити пароль». */
+/** Встановлення власного пароля: після тимчасового від адміна або через «Змінити пароль». */
 export default function NewPassword({
   email,
   note,
@@ -17,9 +20,16 @@ export default function NewPassword({
 }) {
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
+  const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+
+  const checks = [
+    { ok: pw.length >= 8, text: 'Щонайменше 8 символів' },
+    { ok: /\d/.test(pw) && /[a-zа-яіїєґ]/i.test(pw), text: 'Літери та цифри' },
+    { ok: pw.length > 0 && pw === pw2, text: 'Паролі збігаються' },
+  ]
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -49,39 +59,49 @@ export default function NewPassword({
   }
 
   return (
-    <div className="center">
-      <form className="card login" onSubmit={submit}>
-        <div className="brand big">
-          <span className="logo">C</span>
-          <span>Новий пароль</span>
+    <AuthLayout>
+      <form className="auth-card" onSubmit={submit}>
+        <div className="center-text"><Logo /></div>
+        <div>
+          <h1>{done ? 'Пароль змінено' : 'Новий пароль'}</h1>
+          {email && <p className="lead" style={{ marginTop: 6 }}>{email}</p>}
         </div>
-        {email && <p className="muted">Акаунт: {email}</p>}
-        {note && !done && <div className="alert warn">{note}</div>}
         {done ? (
           <>
-            <div className="alert ok">Пароль змінено.</div>
-            <button type="button" className="primary" onClick={onDone}>Перейти до платформи</button>
+            <Alert kind="ok">Готово! Надалі входьте з новим паролем.</Alert>
+            <button type="button" className="btn primary lg block" onClick={onDone}>
+              Перейти до платформи <Icon name="next" size={18} />
+            </button>
           </>
         ) : (
           <>
-            <label>
-              Новий пароль
-              <input type="password" required minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
+            {note && <Alert kind="info">{note}</Alert>}
+            <label className="field">
+              <span>Новий пароль</span>
+              <input type={show ? 'text' : 'password'} required minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" autoFocus />
             </label>
-            <label>
-              Повторіть пароль
-              <input type="password" required minLength={8} value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
+            <label className="field">
+              <span>Повторіть пароль</span>
+              <input type={show ? 'text' : 'password'} required minLength={8} value={pw2} onChange={(e) => setPw2(e.target.value)} autoComplete="new-password" />
             </label>
-            {error && <div className="alert err">{error}</div>}
-            <button className="primary" disabled={busy}>{busy ? '…' : 'Зберегти пароль'}</button>
+            <label className="check small">
+              <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Показати паролі
+            </label>
+            <ul className="pw-checks" aria-live="polite">
+              {checks.map((c) => (
+                <li key={c.text} className={c.ok ? 'ok' : ''}>
+                  <Icon name={c.ok ? 'check' : 'minus'} size={16} /> {c.text}
+                </li>
+              ))}
+            </ul>
+            {error && <Alert kind="err">{error}</Alert>}
+            <button className="btn primary lg block" disabled={busy}>{busy ? 'Збереження…' : 'Зберегти пароль'}</button>
             {onCancel && (
-              <button type="button" className="link" onClick={onCancel}>
-                Скасувати
-              </button>
+              <button type="button" className="btn ghost block" onClick={onCancel}>Скасувати</button>
             )}
           </>
         )}
       </form>
-    </div>
+    </AuthLayout>
   )
 }
