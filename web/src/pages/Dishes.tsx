@@ -5,6 +5,8 @@ import type { DishOverview } from '../lib/types'
 import { errText, fmt } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useToast } from '../components/ui'
+import CategoryChips from '../components/CategoryChips'
+import { catOf, categoryCounts, dishMatches } from '../lib/search'
 
 export default function Dishes() {
   const nav = useNavigate()
@@ -21,11 +23,10 @@ export default function Dishes() {
       .catch((e) => toast(errText(e), 'err'))
   }, [toast])
 
-  const cats = useMemo(() => {
-    const c = new Map<string, number>()
-    for (const d of rows ?? []) c.set(d.category ?? 'Без категорії', (c.get(d.category ?? 'Без категорії') ?? 0) + 1)
-    return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0], 'uk'))
-  }, [rows])
+  const cats = useMemo(() => categoryCounts(rows ?? [], q), [rows, q])
+  const allCats = useMemo(() => categoryCounts(rows ?? [], ''), [rows])
+  const effCat = cat && cats.some(([c]) => c === cat) ? cat : ''
+  const found = cats.reduce((s, [, n]) => s + n, 0)
 
   async function create(e: FormEvent) {
     e.preventDefault()
@@ -34,9 +35,7 @@ export default function Dishes() {
     nav(`/dishes/${data.id}`)
   }
 
-  const list = (rows ?? []).filter(
-    (d) => (!cat || (d.category ?? 'Без категорії') === cat) && (!q || d.name.toLowerCase().includes(q.toLowerCase())),
-  )
+  const list = (rows ?? []).filter((d) => (!effCat || catOf(d) === effCat) && dishMatches(d, q))
   const noCard = (rows ?? []).filter((d) => d.ingredients_count === 0).length
 
   return (
@@ -68,7 +67,7 @@ export default function Dishes() {
       {rows && (
         <div className="stats">
           <div className="stat"><div className="k">Страв у каталозі</div><div className="v">{rows.length}</div></div>
-          <div className="stat"><div className="k">Категорій</div><div className="v">{cats.length}</div></div>
+          <div className="stat"><div className="k">Категорій</div><div className="v">{allCats.length}</div></div>
           <div className="stat"><div className="k">Без техкарти</div><div className="v" style={noCard ? { color: 'var(--warn)' } : undefined}>{noCard}</div></div>
         </div>
       )}
@@ -76,14 +75,7 @@ export default function Dishes() {
       <section className="card flush">
         <div className="stack" style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
           <SearchInput value={q} onChange={setQ} placeholder="Знайти страву…" />
-          <div className="chips">
-            <button className={!cat ? 'chip active' : 'chip'} onClick={() => setCat('')}>Усі<span className="count">{rows?.length ?? 0}</span></button>
-            {cats.map(([c, n]) => (
-              <button key={c} className={cat === c ? 'chip active' : 'chip'} onClick={() => setCat(c === cat ? '' : c)}>
-                {c}<span className="count">{n}</span>
-              </button>
-            ))}
-          </div>
+          <CategoryChips cats={cats} value={effCat} onChange={setCat} total={found} />
         </div>
         {!rows ? (
           <div style={{ padding: 16 }}><Skeleton rows={8} /></div>
