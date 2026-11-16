@@ -18,7 +18,13 @@ export default function Login() {
         ? await supabase.auth.signInWithPassword({ email, password })
         : await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirect } })
     setBusy(false)
-    if (error) return setMsg({ type: 'err', text: error.message })
+    if (error)
+      return setMsg({
+        type: 'err',
+        text: /TEAM_ONLY|Database error saving new user/i.test(error.message)
+          ? 'Цього email немає в списку команди. Попросіть адміністратора додати вас у розділі «Команда».'
+          : error.message,
+      })
     if (mode === 'up' && !data.session)
       setMsg({ type: 'ok', text: 'Акаунт створено. Підтвердіть email за посиланням з листа, потім увійдіть.' })
   }
@@ -46,6 +52,9 @@ export default function Login() {
             autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
           />
         </label>
+        {mode === 'up' && (
+          <p className="muted small">Реєстрація лише для членів команди — ваш email має бути доданий адміністратором.</p>
+        )}
         {msg && <div className={msg.type === 'err' ? 'alert err' : 'alert ok'}>{msg.text}</div>}
         <button className="primary" disabled={busy}>
           {busy ? '…' : mode === 'in' ? 'Увійти' : 'Зареєструватися'}
