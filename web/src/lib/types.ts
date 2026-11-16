@@ -4,6 +4,10 @@ export interface Product {
   id: number
   name: string
   category: string | null
+  kcal: number | null
+  protein: number | null
+  fat: number | null
+  carbs: number | null
 }
 
 export interface Dish {

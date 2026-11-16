@@ -6,6 +6,8 @@ import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
+import NutritionCard from '../components/NutritionCard'
+import { addN, gFmt, kcalFmt, ZERO, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
 
 /** Порядок відділів у списку закупки — як маршрут магазином/ринком. */
@@ -24,6 +26,7 @@ export default function OrderEdit() {
   const [order, setOrder] = useState<Order | null>(null)
   const [draft, setDraft] = useState<Order | null>(null)
   const [dishes, setDishes] = useState<Dish[]>([])
+  const [nutr, setNutr] = useState<Map<number, DishNutr>>(new Map())
   const [items, setItems] = useState<Record<number, string>>({}) // dish_id -> кількість (як введено)
   const [tab, setTab] = useState<Tab>('menu')
   const [error, setError] = useState<string | null>(null)
@@ -36,10 +39,11 @@ export default function OrderEdit() {
     let cancelled = false // ігноруємо застарілі відповіді (повторний рендер / зміна id)
     ;(async () => {
       try {
-        const [{ data: o, error: e1 }, ds, { data: its, error: e2 }] = await Promise.all([
+        const [{ data: o, error: e1 }, ds, { data: its, error: e2 }, dn] = await Promise.all([
           supabase.from('orders').select('*').eq('id', orderId).single(),
           fetchAll<Dish>((f, t) => supabase.from('dishes').select('*').order('name').range(f, t)),
           supabase.from('order_items').select('dish_id, quantity').eq('order_id', orderId),
+          fetchAll<DishNutr>((f, t) => supabase.from('dish_nutrition').select('*').range(f, t)),
         ])
         if (cancelled) return
         if (e1) throw e1
@@ -47,6 +51,7 @@ export default function OrderEdit() {
         setOrder(o)
         setDraft(o)
         setDishes(ds)
+        setNutr(new Map(dn.map((n) => [n.dish_id, n])))
         setItems(Object.fromEntries((its ?? []).map((i) => [i.dish_id, String(i.quantity)])))
       } catch (e) {
         if (!cancelled) setError(errText(e))
@@ -153,6 +158,8 @@ export default function OrderEdit() {
   const num = (raw: string) => Number(raw.replace(',', '.')) || 0
   const totalPortions = selected.reduce((s, x) => s + num(x.raw), 0)
   const totalWeight = selected.reduce((s, x) => s + num(x.raw) * (x.dish.portion_weight_g ?? 0), 0)
+  const totalNutr = selected.reduce((s, x) => (nutr.get(x.dish.id) ? addN(s, nutr.get(x.dish.id)!, num(x.raw)) : s), ZERO)
+  const missingNutr = selected.reduce((s, x) => s + (nutr.get(x.dish.id)?.missing ?? 0), 0)
 
   if (error && !order)
     return (
@@ -265,7 +272,8 @@ export default function OrderEdit() {
 
       {tab === 'menu' && (
         <>
-          <MenuTab dishes={dishes} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
+          <MenuTab dishes={dishes} nutr={nutr} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
+          {selected.length > 0 && <NutritionCard total={totalNutr} guests={order.guests} missing={missingNutr} />}
           {selected.length > 0 && (
             <div className="summary-bar no-print">
               <div className="row wrap" style={{ gap: 24 }}>
@@ -275,6 +283,7 @@ export default function OrderEdit() {
                 {order.guests ? (
                   <div className="item opt"><span className="k">На гостя</span><span className="v">{fmt(totalWeight / order.guests)} г</span></div>
                 ) : null}
+                <div className="item"><span className="k">{order.guests ? 'Ккал/гостя' : 'Ккал'}</span><span className="v">{kcalFmt(order.guests ? totalNutr.kcal / order.guests : totalNutr.kcal)}</span></div>
               </div>
               <button className="btn" onClick={() => goTab('purchase')}>
                 <Icon name="cart" size={18} /> <span className="btn-text">До закупки</span> <Icon name="next" size={16} />
@@ -284,7 +293,7 @@ export default function OrderEdit() {
         </>
       )}
       {tab === 'purchase' && <PurchaseTab order={order} />}
-      {tab === 'breakdown' && <BreakdownTab order={order} selected={selected} />}
+      {tab === 'breakdown' && <BreakdownTab order={order} selected={selected} nutr={nutr} />}
     </div>
   )
 }
@@ -315,13 +324,14 @@ function Stepper({ value, onChange, onCommit, label }: { value: string; onChange
 
 function MenuTab(props: {
   dishes: Dish[]
+  nutr: Map<number, DishNutr>
   selected: { dish: Dish; raw: string }[]
   items: Record<number, string>
   guests: number | null
   onQty: (id: number, raw: string, immediate?: boolean) => void
   onRemove: (id: number) => void
 }) {
-  const { dishes, selected, items, guests, onQty, onRemove } = props
+  const { dishes, nutr, selected, items, guests, onQty, onRemove } = props
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
   const active = useMemo(() => dishes.filter((d) => d.is_active), [dishes])
@@ -350,7 +360,9 @@ function MenuTab(props: {
                 <li key={d.id} className={`dish-item ${inOrder ? 'in' : ''}`}>
                   <div className="grow">
                     <div className="name">{d.name}</div>
-                    <div className="sub">{d.category} · {fmt(d.portion_weight_g)} г</div>
+                    <div className="sub">
+                      {d.category} · {fmt(d.portion_weight_g)} г{nutr.get(d.id) ? ` · ${kcalFmt(nutr.get(d.id)!.kcal)} ккал` : ''}
+                    </div>
                   </div>
                   {inOrder ? (
                     <span className="in-qty"><Icon name="check" size={16} /> {items[d.id]}</span>
@@ -389,6 +401,7 @@ function MenuTab(props: {
                   <th className="num">Кількість</th>
                   <th className="num hide-sm">Порція, г</th>
                   <th className="num">Вага, кг</th>
+                  <th className="num hide-sm">Ккал</th>
                   <th />
                 </tr>
               </thead>
@@ -411,6 +424,9 @@ function MenuTab(props: {
                     </td>
                     <td className="num hide-sm">{fmt(dish.portion_weight_g)}</td>
                     <td className="num strong">{fmt((num(raw) * (dish.portion_weight_g ?? 0)) / 1000)}</td>
+                    <td className="num hide-sm muted" title={nutr.get(dish.id) ? `На порцію: ${kcalFmt(nutr.get(dish.id)!.kcal)} ккал` : undefined}>
+                      {nutr.get(dish.id) ? kcalFmt(num(raw) * nutr.get(dish.id)!.kcal) : '—'}
+                    </td>
                     <td className="actions">
                       <button className="btn ghost icon sm danger" onClick={() => onRemove(dish.id)} aria-label={`Прибрати «${dish.name}»`} title="Прибрати з меню">
                         <Icon name="trash" size={17} />
@@ -632,7 +648,7 @@ function PurchaseTab({ order }: { order: Order }) {
 
 /* ---------------- 3. Склад по стравах ---------------- */
 
-function BreakdownTab({ order, selected }: { order: Order; selected: { dish: Dish; raw: string }[] }) {
+function BreakdownTab({ order, selected, nutr }: { order: Order; selected: { dish: Dish; raw: string }[]; nutr: Map<number, DishNutr> }) {
   const [ings, setIngs] = useState<Ingredient[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const idsKey = selected.map((s) => s.dish.id).join(',')
@@ -686,6 +702,12 @@ function BreakdownTab({ order, selected }: { order: Order; selected: { dish: Dis
           <div key={dish.id} className="breakdown">
             <h4>
               {dish.name} <span className="badge plain">× {fmt(n)}</span>
+              {nutr.get(dish.id) && (
+                <span className="kbzv">
+                  на порцію: {kcalFmt(nutr.get(dish.id)!.kcal)} ккал · Б {gFmt(nutr.get(dish.id)!.protein)} · Ж {gFmt(nutr.get(dish.id)!.fat)} · В{' '}
+                  {gFmt(nutr.get(dish.id)!.carbs)} г
+                </span>
+              )}
             </h4>
             {list.length === 0 ? (
               <Alert kind="warn">Немає технологічної карти — додайте склад у розділі «Страви».</Alert>

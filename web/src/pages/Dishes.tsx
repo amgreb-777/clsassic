@@ -6,6 +6,7 @@ import { errText, fmt } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
+import { kcalFmt, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches } from '../lib/search'
 
 export default function Dishes() {
@@ -16,10 +17,14 @@ export default function Dishes() {
   const [cat, setCat] = useState('')
   const [name, setName] = useState('')
   const [adding, setAdding] = useState(false)
+  const [nutr, setNutr] = useState<Map<number, DishNutr>>(new Map())
 
   useEffect(() => {
     fetchAll<DishOverview>((f, t) => supabase.from('dish_overview').select('*').order('name').range(f, t))
       .then(setRows)
+      .catch((e) => toast(errText(e), 'err'))
+    fetchAll<DishNutr>((f, t) => supabase.from('dish_nutrition').select('*').range(f, t))
+      .then((r) => setNutr(new Map(r.map((n) => [n.dish_id, n]))))
       .catch((e) => toast(errText(e), 'err'))
   }, [toast])
 
@@ -91,6 +96,7 @@ export default function Dishes() {
                   <th className="num">Порція, г</th>
                   <th className="num hide-sm">Інгредієнтів</th>
                   <th className="num hide-sm">Σ нетто, г</th>
+                  <th className="num">Ккал / порц.</th>
                   <th style={{ width: 40 }} />
                 </tr>
               </thead>
@@ -106,6 +112,7 @@ export default function Dishes() {
                     <td className="num">{fmt(d.portion_weight_g)}</td>
                     <td className="num hide-sm">{d.ingredients_count}</td>
                     <td className="num hide-sm muted">{fmt(d.net_g_total)}</td>
+                    <td className="num">{nutr.get(d.id) ? kcalFmt(nutr.get(d.id)!.kcal) : '—'}</td>
                     <td className="muted"><Icon name="next" size={18} /></td>
                   </tr>
                 ))}
