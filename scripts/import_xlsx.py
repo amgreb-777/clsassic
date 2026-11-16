@@ -28,6 +28,17 @@ COUNTABLE = {
 }
 LIQUID = {"ігристе"}
 
+# Дублі назв у таблиці → основна назва продукту (об'єднано в базі 16.11.2026)
+ALIASES = {
+    "соевий соус": "Соєвий соус", "индичка": "Індичка", "крем сир": "Крем-сир",
+    "соус кисло - солодкий": "Кисло-солодкий соус", "соус кисло-солодкий": "Кисло-солодкий соус",
+    "соус горіховий": "Горіховий соус", "сир дор блю": "Дор Блю", "зелена цибуля": "Цибуля зелена",
+    "крокети картопляні": "Картопляні крокети", "шампіньйони гриби": "Шампіньйони свіжі",
+    "шампіньони свіжі": "Шампіньйони свіжі", "філе качки": "Філе качине", "оселедець філе": "Філе оселедця",
+    "цукор пісок": "Цукор", "перець болгарський": "Перець солодкий", "яйця курячі": "Яйце куряче (шт)",
+    "яйця перепелині": "Яйце перепелине (шт)", "томати чері": "Томати чері",
+}
+
 
 def clean(s):
     return re.sub(r"\s+", " ", str(s)).strip() if s is not None else None
@@ -86,8 +97,9 @@ def main(path):
     canon = {}  # lower -> canonical name
     for r in range(2, wb["Довідник Продуктів"].max_row + 1):
         v = clean(wb["Довідник Продуктів"].cell(r, 1).value)
-        if v and v.lower() not in canon:
-            canon[v.lower()] = v
+        if v:
+            v = ALIASES.get(v.lower(), v)
+            canon.setdefault(v.lower(), v)
 
     # --- Меню (страви + вага порції)
     dishes = OrderedDict()  # lower -> dict
@@ -112,6 +124,7 @@ def main(path):
         if dish is None:
             dish = dishes[d.lower()] = {"name": d, "portion": None, "lines": OrderedDict()}
             warn.append(f"Страва «{d}» є у складі, але відсутня в меню — додано")
+        p = ALIASES.get(p.lower(), p)
         prod = canon.setdefault(p.lower(), p)
         g, n = float(g or 0), float(n or 0)
         unit = line_unit(prod, g, n)
