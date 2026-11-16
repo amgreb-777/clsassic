@@ -28,6 +28,11 @@ COUNTABLE = {
 }
 LIQUID = {"ігристе"}
 
+# Виправлення помилок у техкартах таблиці: (страва, продукт) → (брутто, нетто) на 1 порцію
+CORRECTIONS = {
+    ("Борщ Український", "Олія соняшникова"): (2, 2),  # у таблиці 20 г — це на 10 порцій
+}
+
 # Дублі назв у таблиці → основна назва продукту (об'єднано в базі 16.11.2026)
 ALIASES = {
     "соевий соус": "Соєвий соус", "индичка": "Індичка", "крем сир": "Крем-сир",
@@ -127,6 +132,8 @@ def main(path):
         p = ALIASES.get(p.lower(), p)
         prod = canon.setdefault(p.lower(), p)
         g, n = float(g or 0), float(n or 0)
+        if (dish["name"], prod) in CORRECTIONS:
+            g, n = CORRECTIONS[(dish["name"], prod)]
         unit = line_unit(prod, g, n)
         key = (prod, unit)
         if key in dish["lines"]:
