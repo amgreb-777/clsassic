@@ -7,8 +7,9 @@ import { Empty, SearchInput, Skeleton, useConfirm, useToast } from '../component
 import CategoryChips from '../components/CategoryChips'
 import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
 import { gFmt, kcalFmt } from '../lib/nutrition'
+import { priceDate, priceParts } from '../lib/cost'
 
-type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string }
+type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string; price_kg: string; price_pcs: string }
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
 const NUTR: { k: 'kcal' | 'protein' | 'fat' | 'carbs'; label: string }[] = [
   { k: 'kcal', label: 'Ккал' },
@@ -24,7 +25,7 @@ export default function Products() {
   const confirm = useConfirm()
   const [rows, setRows] = useState<Row[] | null>(null)
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | 'unused'>('all')
+  const [filter, setFilter] = useState<'all' | 'unused' | 'noprice'>('all')
   const [name, setName] = useState('')
   const [newCat, setNewCat] = useState('')
   const [cat, setCat] = useState('')
@@ -72,9 +73,16 @@ export default function Products() {
     const vals = { kcal: numOrNull(v.kcal), protein: numOrNull(v.protein), fat: numOrNull(v.fat), carbs: numOrNull(v.carbs) }
     if (Object.values(vals).some((x) => x != null && (Number.isNaN(x) || x < 0)))
       return toast('КБЖВ — невід\'ємні числа (на 100 г)', 'err')
+    const prices = { price_kg: numOrNull(v.price_kg), price_pcs: numOrNull(v.price_pcs) }
+    if (Object.values(prices).some((x) => x != null && (Number.isNaN(x) || x < 0))) return toast('Ціна — невід\'ємне число', 'err')
+    // Ціну змінено вручну — фіксуємо джерело і дату
+    const priceChanged = prices.price_kg !== (p.price_kg == null ? null : Number(p.price_kg)) || prices.price_pcs !== (p.price_pcs == null ? null : Number(p.price_pcs))
+    const priceMeta = priceChanged
+      ? { price_source: 'Вручну', price_item: null, price_pack: null, price_url: null, price_note: null, price_at: new Date().toISOString().slice(0, 10) }
+      : {}
     const { error } = await supabase
       .from('products')
-      .update({ name: v.name.trim(), category: v.category.trim() || null, ...vals })
+      .update({ name: v.name.trim(), category: v.category.trim() || null, ...vals, ...prices, ...priceMeta })
       .eq('id', p.id)
     if (error) return toast(error.code === '23505' ? 'Продукт з такою назвою вже є' : error.message, 'err')
     setEdit(({ [p.id]: _, ...rest }) => rest)
@@ -92,8 +100,16 @@ export default function Products() {
   }
 
   const used = (p: Row) => p.dish_ingredients[0]?.count ?? 0
-  const base = useMemo(() => (rows ?? []).filter((p) => filter === 'all' || used(p) === 0), [rows, filter])
+  const noPrice = (p: Row) => p.price_kg == null && p.price_pcs == null
+  const base = useMemo(
+    () => (rows ?? []).filter((p) => filter === 'all' || (filter === 'unused' ? used(p) === 0 : noPrice(p))),
+    [rows, filter],
+  )
   const unusedCount = (rows ?? []).filter((p) => used(p) === 0).length
+  const noPriceCount = (rows ?? []).filter(noPrice).length
+  const pricedAt = priceDate(rows ?? [])
+  // «Сільпо (широкий асортимент)» → «Сільпо»; ручні ціни окремо не показуємо
+  const sources = [...new Set((rows ?? []).map((p) => p.price_source?.replace(/\s*\(.*\)$/, '')).filter((x): x is string => !!x && x !== 'Вручну'))]
   const cats = useMemo(() => categoryCounts(base, q), [base, q])
   const allCats = useMemo(() => [...new Set((rows ?? []).map((p) => p.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'uk')), [rows])
   const effCat = cat && cats.some(([c]) => c === cat) ? cat : ''
@@ -107,6 +123,14 @@ export default function Products() {
           <div className="eyebrow">Довідник</div>
           <h1>Продукти</h1>
           <p>Єдині назви продуктів — щоб закупка коректно сумувала однакові позиції з різних страв. КБЖВ вказано на 100 г їстівної частини.</p>
+          {pricedAt && (
+            <p className="price-note">
+              <Icon name="cart" size={16} />
+              <span>
+                Ціни: {sources.join(', ')} · доставка по Києву · звичайна ціна без акцій · зібрано <b>{pricedAt}</b>
+              </span>
+            </p>
+          )}
         </div>
       </div>
 
@@ -135,6 +159,12 @@ export default function Products() {
               <input type="checkbox" checked={filter === 'unused'} onChange={(e) => setFilter(e.target.checked ? 'unused' : 'all')} />
               Лише ті, що не використовуються ({unusedCount})
             </label>
+            {noPriceCount > 0 && (
+              <label className="check small">
+                <input type="checkbox" checked={filter === 'noprice'} onChange={(e) => setFilter(e.target.checked ? 'noprice' : 'all')} />
+                Без ціни ({noPriceCount})
+              </label>
+            )}
           </div>
           <CategoryChips cats={cats} value={effCat} onChange={setCat} total={found} />
         </div>
@@ -152,6 +182,7 @@ export default function Products() {
                   {NUTR.map((x) => (
                     <th key={x.k} className="num hide-sm" title={`${x.label} на 100 г`}>{x.label}</th>
                   ))}
+                  <th className="num hide-sm">Ціна</th>
                   <th className="num" title="У скількох стравах використовується">Страв</th>
                   <th />
                 </tr>
@@ -164,7 +195,7 @@ export default function Products() {
                   if (e)
                     return (
                       <tr key={p.id} className="edit-row">
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <form
                             className="edit-form"
                             onSubmit={(ev) => {
@@ -187,6 +218,22 @@ export default function Products() {
                                 <input className="tnum" inputMode="decimal" value={e[x.k]} aria-label={`${x.label} на 100 г`} onChange={(ev) => set({ [x.k]: ev.target.value })} />
                               </label>
                             ))}
+                            <label className="field price-f">
+                              <span>Ціна, ₴/кг</span>
+                              <input className="tnum" inputMode="decimal" value={e.price_kg} placeholder="—" onChange={(ev) => set({ price_kg: ev.target.value })} />
+                            </label>
+                            <label className="field price-f">
+                              <span>Ціна, ₴/шт</span>
+                              <input className="tnum" inputMode="decimal" value={e.price_pcs} placeholder="—" onChange={(ev) => set({ price_pcs: ev.target.value })} />
+                            </label>
+                            {p.price_item && (
+                              <p className="small muted full">
+                                Ціна з {p.price_source}: {p.price_url ? <a href={p.price_url} target="_blank" rel="noreferrer">{p.price_item}</a> : p.price_item}
+                                {p.price_pack ? ` · ${p.price_pack}` : ''}
+                                {p.price_at ? ` · ${new Date(p.price_at + 'T00:00:00').toLocaleDateString('uk-UA')}` : ''}
+                                {p.price_note ? ` · ${p.price_note}` : ''}
+                              </p>
+                            )}
                             <div className="acts">
                               <span className="muted small grow" style={{ alignSelf: 'center' }}>КБЖВ на 100 г · у стравах: {used(p)}</span>
                               <button type="button" className="btn ghost" onClick={cancel}>Скасувати</button>
@@ -206,6 +253,8 @@ export default function Products() {
                         protein: p.protein == null ? '' : String(p.protein),
                         fat: p.fat == null ? '' : String(p.fat),
                         carbs: p.carbs == null ? '' : String(p.carbs),
+                        price_kg: p.price_kg == null ? '' : String(p.price_kg),
+                        price_pcs: p.price_pcs == null ? '' : String(p.price_pcs),
                       },
                     })
                   return (
@@ -219,6 +268,8 @@ export default function Products() {
                           ) : (
                             `${kcalFmt(Number(p.kcal))} ккал · Б ${gFmt(Number(p.protein ?? 0))} · Ж ${gFmt(Number(p.fat ?? 0))} · В ${gFmt(Number(p.carbs ?? 0))}`
                           )}
+                          {' · '}
+                          {noPrice(p) ? <span className="warn-text">без ціни</span> : priceParts(p).join(' · ')}
                         </div>
                       </td>
                       <td className="hide-sm">
@@ -235,6 +286,18 @@ export default function Products() {
                           )}
                         </td>
                       ))}
+                      <td className="num price-cell hide-sm" title={p.price_item ? `${p.price_source}: ${p.price_item}${p.price_pack ? ` (${p.price_pack})` : ''}${p.price_note ? ` — ${p.price_note}` : ''}` : undefined}>
+                        {noPrice(p) ? (
+                          <span className="warn-text">—</span>
+                        ) : (
+                          <>
+                            {priceParts(p).map((x) => (
+                              <div key={x} className="tnum">{x}</div>
+                            ))}
+                            {p.price_source && p.price_source !== 'Сільпо' && <div className="src">{p.price_source}</div>}
+                          </>
+                        )}
+                      </td>
                       <td className="num">{used(p) ? <span className="badge plain">{used(p)}</span> : <span className="muted">0</span>}</td>
                       <td className="actions">
                         <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={startEdit}>

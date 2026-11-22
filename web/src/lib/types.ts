@@ -8,6 +8,23 @@ export interface Product {
   protein: number | null
   fat: number | null
   carbs: number | null
+  price_kg: number | null
+  price_pcs: number | null
+  price_source: string | null
+  price_item: string | null
+  price_pack: string | null
+  price_url: string | null
+  price_note: string | null
+  price_at: string | null
+}
+
+/** Собівартість 1 порції (view dish_cost). */
+export interface DishCost {
+  dish_id: number
+  cost: number
+  missing: number
+  price_from: string | null
+  price_to: string | null
 }
 
 export interface Dish {

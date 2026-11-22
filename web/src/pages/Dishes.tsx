@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchAll, supabase } from '../lib/supabase'
-import type { DishOverview } from '../lib/types'
+import type { DishCost, DishOverview } from '../lib/types'
 import { errText, fmt } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
 import { kcalFmt, type DishNutr } from '../lib/nutrition'
+import { uah } from '../lib/cost'
 import { catOf, categoryCounts, dishMatches } from '../lib/search'
 
 export default function Dishes() {
@@ -18,6 +19,7 @@ export default function Dishes() {
   const [name, setName] = useState('')
   const [adding, setAdding] = useState(false)
   const [nutr, setNutr] = useState<Map<number, DishNutr>>(new Map())
+  const [costs, setCosts] = useState<Map<number, DishCost>>(new Map())
 
   useEffect(() => {
     fetchAll<DishOverview>((f, t) => supabase.from('dish_overview').select('*').order('name').range(f, t))
@@ -25,6 +27,9 @@ export default function Dishes() {
       .catch((e) => toast(errText(e), 'err'))
     fetchAll<DishNutr>((f, t) => supabase.from('dish_nutrition').select('*').range(f, t))
       .then((r) => setNutr(new Map(r.map((n) => [n.dish_id, n]))))
+      .catch((e) => toast(errText(e), 'err'))
+    fetchAll<DishCost>((f, t) => supabase.from('dish_cost').select('*').range(f, t))
+      .then((r) => setCosts(new Map(r.map((c) => [c.dish_id, c]))))
       .catch((e) => toast(errText(e), 'err'))
   }, [toast])
 
@@ -96,7 +101,8 @@ export default function Dishes() {
                   <th className="num">Порція, г</th>
                   <th className="num hide-sm">Інгредієнтів</th>
                   <th className="num hide-sm">Σ нетто, г</th>
-                  <th className="num">Ккал / порц.</th>
+                  <th className="num hide-sm">Ккал / порц.</th>
+                  <th className="num" title="Собівартість 1 порції за цінами продуктів (брутто)">Собів., ₴</th>
                   <th style={{ width: 40 }} />
                 </tr>
               </thead>
@@ -107,13 +113,17 @@ export default function Dishes() {
                       <Link to={`/dishes/${d.id}`} className="row-link" onClick={(e) => e.stopPropagation()}>{d.name}</Link>
                       {!d.is_active && <span className="tag">прихована</span>}
                       {d.ingredients_count === 0 && <span className="tag">без техкарти</span>}
-                      <div className="sub-sm show-sm">{d.category ?? 'Без категорії'} · {d.ingredients_count} інгр.</div>
+                      <div className="sub-sm show-sm">{d.category ?? 'Без категорії'} · {d.ingredients_count} інгр.{nutr.get(d.id) ? ` · ${kcalFmt(nutr.get(d.id)!.kcal)} ккал` : ''}</div>
                     </td>
                     <td className="muted hide-sm">{d.category ?? '—'}</td>
                     <td className="num">{fmt(d.portion_weight_g)}</td>
                     <td className="num hide-sm">{d.ingredients_count}</td>
                     <td className="num hide-sm muted">{fmt(d.net_g_total)}</td>
-                    <td className="num">{nutr.get(d.id) ? kcalFmt(nutr.get(d.id)!.kcal) : '—'}</td>
+                    <td className="num hide-sm">{nutr.get(d.id) ? kcalFmt(nutr.get(d.id)!.kcal) : '—'}</td>
+                    <td className="num cost">
+                      {costs.get(d.id) && d.ingredients_count > 0 ? uah(Number(costs.get(d.id)!.cost)) : '—'}
+                      {costs.get(d.id)?.missing ? <div className="cost-missing" title="Для частини продуктів немає ціни">без {costs.get(d.id)!.missing} цін</div> : null}
+                    </td>
                     <td className="muted"><Icon name="next" size={18} /></td>
                   </tr>
                 ))}

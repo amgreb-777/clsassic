@@ -647,3 +647,48 @@ table.edit .c-unit select { width: 76px; }
   .toolbar > .check { min-height: 36px; }
 }
 @media (max-width: 420px) { .nutr-table td { font-size: 0.9rem; } }
+/* Ціни */
+.price-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px !important; color: var(--gold-ink) !important; font-size: 0.86rem; }
+.price-note b { color: var(--ink); }
+.price-cell { line-height: 1.3; }
+.price-cell .src { font-size: 0.7rem; color: var(--gold-ink); font-weight: 600; }
+.edit-form { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.edit-form .wide { grid-column: span 3; }
+.edit-form .full { grid-column: 1 / -1; margin: 0; }
+.cost { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cost-missing { color: var(--warn); font-size: 0.72rem; font-weight: 600; }
+@media (max-width: 700px) {
+  .edit-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .edit-form .wide { grid-column: 1 / -1; }
+  .edit-form .price-f { grid-column: span 2; }
+}
+@media (max-width: 600px) {
+  .edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .edit-form .price-f { grid-column: auto; }
+}
+.stats.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+table.edit .c-cost { color: var(--ink-2); white-space: nowrap; }
+@media (max-width: 700px) {
+  table.edit .c-cost { grid-column: 1 / -1; text-align: right; font-size: 0.82rem; }
+  table.edit .c-cost::before { display: inline !important; margin-right: 6px; }
+  table.edit .c-cost:empty { display: none; }
+}
+@media (max-width: 600px) {
+  .stats.four { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stats.four .stat { padding: 10px 12px; }
+  .stats.four .stat .v { font-size: 1.15rem; }
+}
+@media (max-width: 700px) {
+  .menu-table tbody tr { grid-template-columns: auto 1fr auto; }
+  .menu-table .c-name { grid-column: 1 / 3; grid-row: 1; }
+  .menu-table .actions { grid-column: 3; grid-row: 1; align-self: start; }
+  .menu-table .c-qty { grid-column: 1; grid-row: 2; }
+  .menu-table .c-weight { grid-column: 2; grid-row: 2; }
+  .menu-table .c-cost { grid-column: 3; grid-row: 2; text-align: right; font-weight: 600; }
+}
+.price-note { align-items: flex-start; flex-wrap: nowrap; }
+.price-note svg { flex: none; margin-top: 2px; }
+@media (max-width: 700px) {
+  table.edit .actions { grid-column: 4; grid-row: 2; }
+  table.edit .c-cost { grid-row: 3; }
+}
