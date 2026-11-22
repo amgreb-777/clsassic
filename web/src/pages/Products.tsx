@@ -8,6 +8,7 @@ import CategoryChips from '../components/CategoryChips'
 import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
 import { gFmt, kcalFmt } from '../lib/nutrition'
 import { priceDate, priceParts, uah } from '../lib/cost'
+import { exportPricesXlsx } from '../lib/exportPrices'
 
 type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string; price_kg: string; price_pcs: string }
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
@@ -87,6 +88,19 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
   const [sp, setSp] = useState<Map<number, Record<string, StorePrice>>>(new Map())
   const [calcStore, setCalcStore] = useState('METRO')
   const [applying, setApplying] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  async function exportXlsx() {
+    if (!rows) return
+    setExporting(true)
+    try {
+      await exportPricesXlsx({ products: sortRows(rows), prices: sp, stores: cols, calcStore })
+    } catch (e) {
+      toast(`Не вдалося створити Excel: ${errText(e)}`, 'err')
+    } finally {
+      setExporting(false)
+    }
+  }
   const [view, setViewState] = useState<View>(() => {
     try {
       return (localStorage.getItem('productsView') as View) || 'prices'
@@ -347,6 +361,9 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
               <button role="tab" aria-selected={view === 'prices'} className={view === 'prices' ? 'chip active' : 'chip'} onClick={() => setView('prices')}>Ціни магазинів</button>
               <button role="tab" aria-selected={view === 'nutr'} className={view === 'nutr' ? 'chip active' : 'chip'} onClick={() => setView('nutr')}>КБЖВ</button>
             </div>
+            <button className="btn sm" onClick={exportXlsx} disabled={!rows || exporting} title="Ціни всіх магазинів для всіх продуктів">
+              <Icon name="download" size={16} /> {exporting ? 'Готую…' : 'Excel'}
+            </button>
             <label className="sort-sm">
               <span className="sr-only">Сортування</span>
               <select
