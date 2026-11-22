@@ -25,7 +25,7 @@ const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
 type View = 'prices' | 'nutr'
 
 /** Клітинка з ціною одного магазину */
-function StoreCell({ sp, calc, best }: { sp?: StorePrice; calc: boolean; best: boolean }) {
+function StoreCell({ sp, calc, best, used }: { sp?: StorePrice; calc: boolean; best: boolean; used: boolean }) {
   if (!sp || (sp.price_kg == null && sp.price_pcs == null))
     return <td className={`num store-cell hide-sm${calc ? ' calc' : ''}`}><span className="muted">—</span></td>
   const oos = /наявн/.test(sp.note ?? '')
@@ -35,10 +35,11 @@ function StoreCell({ sp, calc, best }: { sp?: StorePrice; calc: boolean; best: b
       {sp.price_kg != null && <div className={best ? 'best' : undefined}>{uah(Number(sp.price_kg))}<span className="u">/кг</span></div>}
       {sp.price_pcs != null && <div className="pcs">{uah(Number(sp.price_pcs))}<span className="u">/шт</span></div>}
       {oos && <div className="oos">немає в наявності</div>}
+      {used && <div className="used-tag">у розрахунку</div>}
     </>
   )
   return (
-    <td className={`num store-cell hide-sm${calc ? ' calc' : ''}`} title={title}>
+    <td className={`num store-cell hide-sm${calc ? ' calc' : ''}${used ? ' used' : ''}`} title={title}>
       {sp.url ? <a href={sp.url} target="_blank" rel="noreferrer">{body}</a> : body}
     </td>
   )
@@ -94,7 +95,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     if (store === calcStore) return
     const ok = await confirm({
       title: 'Змінити джерело цін?',
-      text: `Собівартість страв і вартість закупки буде перераховано за цінами «${store}». Продукти, яких немає в цьому магазині, залишаться без ціни.`,
+      text: `Собівартість страв і вартість закупки буде перераховано за цінами «${store}». Для продуктів, яких там немає, — мінімальна ціна серед інших магазинів, де товар є в наявності. Ручні ціни буде замінено (вони лишаються в колонці «Вручну»).`,
       ok: 'Перерахувати',
     })
     if (!ok) return
@@ -145,18 +146,16 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     // Ціну змінено вручну — фіксуємо джерело і дату
     const priceChanged = prices.price_kg !== (p.price_kg == null ? null : Number(p.price_kg)) || prices.price_pcs !== (p.price_pcs == null ? null : Number(p.price_pcs))
     const today = new Date().toISOString().slice(0, 10)
-    const manual = calcStore === 'Середня' ? 'Вручну' : calcStore
-    const priceMeta = priceChanged ? { price_source: manual, price_note: 'змінено вручну', price_at: today } : {}
-    if (priceChanged && calcStore !== 'Середня') {
-      // ручна ціна зберігається як ціна магазину, з якого рахуємо, — не зітреться при перерахунку
+    const priceMeta = priceChanged
+      ? { price_source: 'Вручну', price_item: null, price_pack: null, price_url: null, price_note: 'змінено вручну', price_at: today }
+      : {}
+    if (priceChanged) {
+      // ручна ціна — окрема колонка «Вручну», ціни магазинів не змінюються
       const { error: e1 } = await supabase.from('product_prices').upsert({
         product_id: p.id,
-        store: calcStore,
+        store: 'Вручну',
         price_kg: prices.price_kg,
         price_pcs: prices.price_pcs,
-        item: sp.get(p.id)?.[calcStore]?.item ?? null,
-        pack: sp.get(p.id)?.[calcStore]?.pack ?? null,
-        url: sp.get(p.id)?.[calcStore]?.url ?? null,
         note: 'змінено вручну',
         collected_at: today,
       })
@@ -190,6 +189,8 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
   const unusedCount = (rows ?? []).filter((p) => used(p) === 0).length
   const noPriceCount = (rows ?? []).filter(noPrice).length
   const pricedAt = priceDate([...sp.values()].flatMap((r) => Object.values(r).map((x) => ({ price_at: x.collected_at }))))
+  const hasManual = [...sp.values()].some((r) => r['Вручну'])
+  const cols = hasManual ? [...STORES, 'Вручну'] : STORES
   const storeCount = (st: string) => [...sp.values()].filter((r) => r[st] && (r[st].price_kg != null || r[st].price_pcs != null)).length
   // найнижча ціна за кг серед магазинів (якщо цін щонайменше дві)
   const bestStore = (id: number) => {
@@ -291,7 +292,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                     ))}
                   {view === 'nutr' && <th className="num hide-sm">Ціна</th>}
                   {view === 'prices' &&
-                    STORES.map((st) => (
+                    cols.map((st) => (
                       <th key={st} className={`num hide-sm${st === calcStore ? ' calc' : ''}`} title={st === calcStore ? 'Ця ціна йде в собівартість і закупку' : undefined}>
                         {st}
                         {st === calcStore && <div className="calc-tag">розрахунок</div>}
@@ -341,7 +342,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                               <input className="tnum" inputMode="decimal" value={e.price_pcs} placeholder="—" onChange={(ev) => set({ price_pcs: ev.target.value })} />
                             </label>
                             <p className="small muted full">
-                              Ціна для розрахунку — {calcStore === 'Середня' ? 'середня по магазинах' : calcStore}; ручна зміна збережеться як ціна цього магазину.
+                              Ціна для розрахунку — {calcStore === 'Середня' ? 'середня по магазинах' : calcStore} (якщо продукту там немає — мінімальна з наявних в інших магазинах). Ручна зміна збережеться в колонці «Вручну».
                             </p>
                             {p.price_item && (
                               <p className="small muted full">
@@ -380,11 +381,11 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                         <span className="strong" style={{ fontWeight: 500 }}>{p.name}</span>
                         {view === 'prices' ? (
                           <div className="sub-sm show-sm store-line">
-                            {STORES.filter((st) => sp.get(p.id)?.[st]).map((st) => {
+                            {cols.filter((st) => sp.get(p.id)?.[st]).map((st) => {
                               const x = sp.get(p.id)![st]
                               const v = x.price_kg != null ? `${uah(Number(x.price_kg))}/кг` : x.price_pcs != null ? `${uah(Number(x.price_pcs))}/шт` : '—'
                               return (
-                                <span key={st} className={st === calcStore ? 'calc' : bestStore(p.id) === st ? 'best' : undefined}>
+                                <span key={st} className={st === calcStore || p.price_source === st ? 'calc' : bestStore(p.id) === st ? 'best' : undefined}>
                                   {st} {v}
                                 </span>
                               )
@@ -419,7 +420,15 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                         </td>
                       ))}
                       {view === 'prices' &&
-                        STORES.map((st) => <StoreCell key={st} sp={sp.get(p.id)?.[st]} calc={st === calcStore} best={bestStore(p.id) === st} />)}
+                        cols.map((st) => (
+                          <StoreCell
+                            key={st}
+                            sp={sp.get(p.id)?.[st]}
+                            calc={st === calcStore}
+                            best={bestStore(p.id) === st}
+                            used={st !== calcStore && p.price_source === st}
+                          />
+                        ))}
                       {view === 'nutr' && (
                       <td className="num price-cell hide-sm" title={p.price_item ? `${p.price_source}: ${p.price_item}${p.price_pack ? ` (${p.price_pack})` : ''}${p.price_note ? ` — ${p.price_note}` : ''}` : undefined}>
                         {noPrice(p) ? (
