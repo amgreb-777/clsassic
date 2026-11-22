@@ -29,6 +29,8 @@ export interface StorePrice {
   url: string | null
   note: string | null
   collected_at: string
+  /** звичайна ціна упаковки — для перевірки зміни фасування */
+  pack_price?: number | null
 }
 
 /** Собівартість 1 порції (view dish_cost). */
