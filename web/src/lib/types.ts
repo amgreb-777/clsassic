@@ -18,6 +18,19 @@ export interface Product {
   price_at: string | null
 }
 
+/** Ціна продукту в конкретному магазині (product_prices). */
+export interface StorePrice {
+  product_id: number
+  store: string
+  price_kg: number | null
+  price_pcs: number | null
+  item: string | null
+  pack: string | null
+  url: string | null
+  note: string | null
+  collected_at: string
+}
+
 /** Собівартість 1 порції (view dish_cost). */
 export interface DishCost {
   dish_id: number

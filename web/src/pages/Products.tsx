@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { fetchAll, supabase } from '../lib/supabase'
-import type { Product } from '../lib/types'
+import type { Product, StorePrice } from '../lib/types'
 import { errText } from '../lib/format'
 import Icon from '../components/Icon'
 import { Empty, SearchInput, Skeleton, useConfirm, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
 import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
 import { gFmt, kcalFmt } from '../lib/nutrition'
-import { priceDate, priceParts } from '../lib/cost'
+import { priceDate, priceParts, uah } from '../lib/cost'
 
 type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string; price_kg: string; price_pcs: string }
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
@@ -20,7 +20,31 @@ const NUTR: { k: 'kcal' | 'protein' | 'fat' | 'carbs'; label: string }[] = [
 
 type Row = Product & { dish_ingredients: { count: number }[] }
 
-export default function Products() {
+/** Магазини, ціни яких показуємо колонками */
+const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
+type View = 'prices' | 'nutr'
+
+/** Клітинка з ціною одного магазину */
+function StoreCell({ sp, calc, best }: { sp?: StorePrice; calc: boolean; best: boolean }) {
+  if (!sp || (sp.price_kg == null && sp.price_pcs == null))
+    return <td className={`num store-cell hide-sm${calc ? ' calc' : ''}`}><span className="muted">—</span></td>
+  const oos = /наявн/.test(sp.note ?? '')
+  const title = [sp.item, sp.pack, sp.note].filter(Boolean).join(' · ')
+  const body = (
+    <>
+      {sp.price_kg != null && <div className={best ? 'best' : undefined}>{uah(Number(sp.price_kg))}<span className="u">/кг</span></div>}
+      {sp.price_pcs != null && <div className="pcs">{uah(Number(sp.price_pcs))}<span className="u">/шт</span></div>}
+      {oos && <div className="oos">немає в наявності</div>}
+    </>
+  )
+  return (
+    <td className={`num store-cell hide-sm${calc ? ' calc' : ''}`} title={title}>
+      {sp.url ? <a href={sp.url} target="_blank" rel="noreferrer">{body}</a> : body}
+    </td>
+  )
+}
+
+export default function Products({ isAdmin }: { isAdmin: boolean }) {
   const toast = useToast()
   const confirm = useConfirm()
   const [rows, setRows] = useState<Row[] | null>(null)
@@ -30,13 +54,56 @@ export default function Products() {
   const [newCat, setNewCat] = useState('')
   const [cat, setCat] = useState('')
   const [edit, setEdit] = useState<Record<number, Edit>>({})
+  const [sp, setSp] = useState<Map<number, Record<string, StorePrice>>>(new Map())
+  const [calcStore, setCalcStore] = useState('METRO')
+  const [applying, setApplying] = useState(false)
+  const [view, setViewState] = useState<View>(() => {
+    try {
+      return (localStorage.getItem('productsView') as View) || 'prices'
+    } catch {
+      return 'prices'
+    }
+  })
+  const setView = (v: View) => {
+    setViewState(v)
+    try {
+      localStorage.setItem('productsView', v)
+    } catch {
+      /* немає доступу до localStorage */
+    }
+  }
 
   async function load() {
     try {
-      setRows(await fetchAll<Row>((f, t) => supabase.from('products').select('*, dish_ingredients(count)').order('name').range(f, t)))
+      const [prods, prices, { data: st }] = await Promise.all([
+        fetchAll<Row>((f, t) => supabase.from('products').select('*, dish_ingredients(count)').order('name').range(f, t)),
+        fetchAll<StorePrice>((f, t) => supabase.from('product_prices').select('*').range(f, t)),
+        supabase.from('app_settings').select('value').eq('key', 'price_store').maybeSingle(),
+      ])
+      const m = new Map<number, Record<string, StorePrice>>()
+      for (const x of prices) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
+      setRows(prods)
+      setSp(m)
+      if (st?.value) setCalcStore(st.value)
     } catch (e) {
       toast(errText(e), 'err')
     }
+  }
+
+  async function applyStore(store: string) {
+    if (store === calcStore) return
+    const ok = await confirm({
+      title: 'Змінити джерело цін?',
+      text: `Собівартість страв і вартість закупки буде перераховано за цінами «${store}». Продукти, яких немає в цьому магазині, залишаться без ціни.`,
+      ok: 'Перерахувати',
+    })
+    if (!ok) return
+    setApplying(true)
+    const { data, error } = await supabase.rpc('apply_price_store', { p_store: store })
+    setApplying(false)
+    if (error) return toast(error.message, 'err')
+    toast(`Ціни для розрахунку: ${store} (${data} продуктів з ціною)`)
+    load()
   }
   useEffect(() => {
     load()
@@ -77,9 +144,24 @@ export default function Products() {
     if (Object.values(prices).some((x) => x != null && (Number.isNaN(x) || x < 0))) return toast('Ціна — невід\'ємне число', 'err')
     // Ціну змінено вручну — фіксуємо джерело і дату
     const priceChanged = prices.price_kg !== (p.price_kg == null ? null : Number(p.price_kg)) || prices.price_pcs !== (p.price_pcs == null ? null : Number(p.price_pcs))
-    const priceMeta = priceChanged
-      ? { price_source: 'Вручну', price_item: null, price_pack: null, price_url: null, price_note: null, price_at: new Date().toISOString().slice(0, 10) }
-      : {}
+    const today = new Date().toISOString().slice(0, 10)
+    const manual = calcStore === 'Середня' ? 'Вручну' : calcStore
+    const priceMeta = priceChanged ? { price_source: manual, price_note: 'змінено вручну', price_at: today } : {}
+    if (priceChanged && calcStore !== 'Середня') {
+      // ручна ціна зберігається як ціна магазину, з якого рахуємо, — не зітреться при перерахунку
+      const { error: e1 } = await supabase.from('product_prices').upsert({
+        product_id: p.id,
+        store: calcStore,
+        price_kg: prices.price_kg,
+        price_pcs: prices.price_pcs,
+        item: sp.get(p.id)?.[calcStore]?.item ?? null,
+        pack: sp.get(p.id)?.[calcStore]?.pack ?? null,
+        url: sp.get(p.id)?.[calcStore]?.url ?? null,
+        note: 'змінено вручну',
+        collected_at: today,
+      })
+      if (e1) return toast(e1.message, 'err')
+    }
     const { error } = await supabase
       .from('products')
       .update({ name: v.name.trim(), category: v.category.trim() || null, ...vals, ...prices, ...priceMeta })
@@ -107,9 +189,16 @@ export default function Products() {
   )
   const unusedCount = (rows ?? []).filter((p) => used(p) === 0).length
   const noPriceCount = (rows ?? []).filter(noPrice).length
-  const pricedAt = priceDate(rows ?? [])
-  // «Сільпо (широкий асортимент)» → «Сільпо»; ручні ціни окремо не показуємо
-  const sources = [...new Set((rows ?? []).map((p) => p.price_source?.replace(/\s*\(.*\)$/, '')).filter((x): x is string => !!x && x !== 'Вручну'))]
+  const pricedAt = priceDate([...sp.values()].flatMap((r) => Object.values(r).map((x) => ({ price_at: x.collected_at }))))
+  const storeCount = (st: string) => [...sp.values()].filter((r) => r[st] && (r[st].price_kg != null || r[st].price_pcs != null)).length
+  // найнижча ціна за кг серед магазинів (якщо цін щонайменше дві)
+  const bestStore = (id: number) => {
+    const r = sp.get(id)
+    if (!r) return null
+    const xs = STORES.map((st) => [st, r[st]?.price_kg] as const).filter(([, v]) => v != null) as [string, number][]
+    if (xs.length < 2) return null
+    return xs.reduce((a, b) => (Number(b[1]) < Number(a[1]) ? b : a))[0]
+  }
   const cats = useMemo(() => categoryCounts(base, q), [base, q])
   const allCats = useMemo(() => [...new Set((rows ?? []).map((p) => p.category).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'uk')), [rows])
   const effCat = cat && cats.some(([c]) => c === cat) ? cat : ''
@@ -127,11 +216,24 @@ export default function Products() {
             <p className="price-note">
               <Icon name="cart" size={16} />
               <span>
-                Ціни: {sources.join(', ')} · доставка по Києву · звичайна ціна без акцій · зібрано <b>{pricedAt}</b>
+                Ціни інтернет-магазинів з доставкою по Києву (звичайна ціна, без акцій) · зібрано <b>{pricedAt}</b> · для розрахунку собівартості — <b>{calcStore}</b>
               </span>
             </p>
           )}
         </div>
+        <label className="field calc-store">
+          <span>Ціна для розрахунку</span>
+          {isAdmin ? (
+            <select value={calcStore} disabled={applying} onChange={(e) => applyStore(e.target.value)}>
+              {STORES.map((st) => (
+                <option key={st} value={st}>{st} ({storeCount(st)})</option>
+              ))}
+              <option value="Середня">Середня по магазинах</option>
+            </select>
+          ) : (
+            <b>{calcStore}</b>
+          )}
+        </label>
       </div>
 
       <form className="card inline-form" onSubmit={add}>
@@ -155,6 +257,10 @@ export default function Products() {
         <div className="stack" style={{ padding: 16, borderBottom: '1px solid var(--line)' }}>
           <div className="toolbar">
             <SearchInput value={q} onChange={setQ} placeholder="Знайти продукт або категорію…" />
+            <div className="chips seg" role="tablist" aria-label="Що показувати">
+              <button role="tab" aria-selected={view === 'prices'} className={view === 'prices' ? 'chip active' : 'chip'} onClick={() => setView('prices')}>Ціни магазинів</button>
+              <button role="tab" aria-selected={view === 'nutr'} className={view === 'nutr' ? 'chip active' : 'chip'} onClick={() => setView('nutr')}>КБЖВ</button>
+            </div>
             <label className="check small">
               <input type="checkbox" checked={filter === 'unused'} onChange={(e) => setFilter(e.target.checked ? 'unused' : 'all')} />
               Лише ті, що не використовуються ({unusedCount})
@@ -162,7 +268,7 @@ export default function Products() {
             {noPriceCount > 0 && (
               <label className="check small">
                 <input type="checkbox" checked={filter === 'noprice'} onChange={(e) => setFilter(e.target.checked ? 'noprice' : 'all')} />
-                Без ціни ({noPriceCount})
+                Без ціни для розрахунку ({noPriceCount})
               </label>
             )}
           </div>
@@ -179,10 +285,18 @@ export default function Products() {
                 <tr>
                   <th>Продукт</th>
                   <th className="hide-sm">Категорія</th>
-                  {NUTR.map((x) => (
-                    <th key={x.k} className="num hide-sm" title={`${x.label} на 100 г`}>{x.label}</th>
-                  ))}
-                  <th className="num hide-sm">Ціна</th>
+                  {view === 'nutr' &&
+                    NUTR.map((x) => (
+                      <th key={x.k} className="num hide-sm" title={`${x.label} на 100 г`}>{x.label}</th>
+                    ))}
+                  {view === 'nutr' && <th className="num hide-sm">Ціна</th>}
+                  {view === 'prices' &&
+                    STORES.map((st) => (
+                      <th key={st} className={`num hide-sm${st === calcStore ? ' calc' : ''}`} title={st === calcStore ? 'Ця ціна йде в собівартість і закупку' : undefined}>
+                        {st}
+                        {st === calcStore && <div className="calc-tag">розрахунок</div>}
+                      </th>
+                    ))}
                   <th className="num" title="У скількох стравах використовується">Страв</th>
                   <th />
                 </tr>
@@ -195,7 +309,7 @@ export default function Products() {
                   if (e)
                     return (
                       <tr key={p.id} className="edit-row">
-                        <td colSpan={9}>
+                        <td colSpan={12}>
                           <form
                             className="edit-form"
                             onSubmit={(ev) => {
@@ -226,9 +340,12 @@ export default function Products() {
                               <span>Ціна, ₴/шт</span>
                               <input className="tnum" inputMode="decimal" value={e.price_pcs} placeholder="—" onChange={(ev) => set({ price_pcs: ev.target.value })} />
                             </label>
+                            <p className="small muted full">
+                              Ціна для розрахунку — {calcStore === 'Середня' ? 'середня по магазинах' : calcStore}; ручна зміна збережеться як ціна цього магазину.
+                            </p>
                             {p.price_item && (
                               <p className="small muted full">
-                                Ціна з {p.price_source}: {p.price_url ? <a href={p.price_url} target="_blank" rel="noreferrer">{p.price_item}</a> : p.price_item}
+                                Зараз: {p.price_source}: {p.price_url ? <a href={p.price_url} target="_blank" rel="noreferrer">{p.price_item}</a> : p.price_item}
                                 {p.price_pack ? ` · ${p.price_pack}` : ''}
                                 {p.price_at ? ` · ${new Date(p.price_at + 'T00:00:00').toLocaleDateString('uk-UA')}` : ''}
                                 {p.price_note ? ` · ${p.price_note}` : ''}
@@ -261,6 +378,20 @@ export default function Products() {
                     <tr key={p.id}>
                       <td>
                         <span className="strong" style={{ fontWeight: 500 }}>{p.name}</span>
+                        {view === 'prices' ? (
+                          <div className="sub-sm show-sm store-line">
+                            {STORES.filter((st) => sp.get(p.id)?.[st]).map((st) => {
+                              const x = sp.get(p.id)![st]
+                              const v = x.price_kg != null ? `${uah(Number(x.price_kg))}/кг` : x.price_pcs != null ? `${uah(Number(x.price_pcs))}/шт` : '—'
+                              return (
+                                <span key={st} className={st === calcStore ? 'calc' : bestStore(p.id) === st ? 'best' : undefined}>
+                                  {st} {v}
+                                </span>
+                              )
+                            })}
+                            {!STORES.some((st) => sp.get(p.id)?.[st]) && <span className="warn-text">ціни не знайдено</span>}
+                          </div>
+                        ) : (
                         <div className="sub-sm show-sm">
                           {p.category ?? 'Без категорії'} ·{' '}
                           {p.kcal == null ? (
@@ -271,11 +402,12 @@ export default function Products() {
                           {' · '}
                           {noPrice(p) ? <span className="warn-text">без ціни</span> : priceParts(p).join(' · ')}
                         </div>
+                        )}
                       </td>
                       <td className="hide-sm">
                         {p.category ? <span className="badge plain">{p.category}</span> : <span className="muted">—</span>}
                       </td>
-                      {NUTR.map((x) => (
+                      {view === 'nutr' && NUTR.map((x) => (
                         <td key={x.k} className="num hide-sm tnum">
                           {p[x.k] == null ? (
                             <span className="warn-text">—</span>
@@ -286,6 +418,9 @@ export default function Products() {
                           )}
                         </td>
                       ))}
+                      {view === 'prices' &&
+                        STORES.map((st) => <StoreCell key={st} sp={sp.get(p.id)?.[st]} calc={st === calcStore} best={bestStore(p.id) === st} />)}
+                      {view === 'nutr' && (
                       <td className="num price-cell hide-sm" title={p.price_item ? `${p.price_source}: ${p.price_item}${p.price_pack ? ` (${p.price_pack})` : ''}${p.price_note ? ` — ${p.price_note}` : ''}` : undefined}>
                         {noPrice(p) ? (
                           <span className="warn-text">—</span>
@@ -294,10 +429,11 @@ export default function Products() {
                             {priceParts(p).map((x) => (
                               <div key={x} className="tnum">{x}</div>
                             ))}
-                            {p.price_source && !p.price_source.startsWith('Сільпо') && <div className="src">{p.price_source}</div>}
+                            {p.price_source && <div className="src">{p.price_source}</div>}
                           </>
                         )}
                       </td>
+                      )}
                       <td className="num">{used(p) ? <span className="badge plain">{used(p)}</span> : <span className="muted">0</span>}</td>
                       <td className="actions">
                         <button className="btn ghost icon sm" aria-label={`Змінити «${p.name}»`} title="Змінити" onClick={startEdit}>

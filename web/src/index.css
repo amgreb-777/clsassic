@@ -692,3 +692,21 @@ table.edit .c-cost { color: var(--ink-2); white-space: nowrap; }
   table.edit .actions { grid-column: 4; grid-row: 2; }
   table.edit .c-cost { grid-row: 3; }
 }
+/* Ціни по магазинах */
+.calc-store { min-width: 220px; }
+.calc-store b { font-family: var(--font-display); font-size: 1.1rem; }
+.chips.seg { flex: none; }
+th.calc { color: var(--gold-ink); background: var(--gold-soft); }
+.calc-tag { font-size: 0.62rem; letter-spacing: 0.04em; font-weight: 600; color: var(--gold-ink); opacity: 0.85; }
+.store-cell { line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.store-cell a { color: inherit; display: block; }
+.store-cell a:hover { color: var(--gold-ink); }
+.store-cell.calc { background: color-mix(in srgb, var(--gold-soft) 70%, transparent); font-weight: 600; }
+.store-cell .u { font-size: 0.72rem; color: var(--muted); font-weight: 400; }
+.store-cell .pcs { font-size: 0.8rem; color: var(--ink-2); }
+.store-cell .best { color: var(--success); }
+.store-cell .oos { font-size: 0.66rem; color: var(--warn); font-weight: 500; }
+@media (max-width: 700px) { .store-line { display: flex; flex-wrap: wrap; gap: 2px 10px; } }
+.store-line .calc { color: var(--gold-ink); font-weight: 600; }
+.store-line .best { color: var(--success); }
+@media (max-width: 600px) { .calc-store { min-width: 0; } }

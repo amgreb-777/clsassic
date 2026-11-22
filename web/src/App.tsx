@@ -162,7 +162,7 @@ export default function App() {
           <Route path="/orders/:id" element={<OrderEdit />} />
           <Route path="/dishes" element={<Dishes />} />
           <Route path="/dishes/:id" element={<DishEdit />} />
-          <Route path="/products" element={<Products />} />
+          <Route path="/products" element={<Products isAdmin={role === 'admin'} />} />
           <Route path="/team" element={<Team isAdmin={role === 'admin'} myEmail={email} />} />
           <Route path="*" element={<Navigate to="/orders" replace />} />
         </Routes>

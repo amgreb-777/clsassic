@@ -556,6 +556,10 @@ function PurchaseTab({ order }: { order: Order }) {
   const leftCost = rows.filter((r) => !bought.has(k(r))).reduce((s, r) => s + (costOf(r) ?? 0), 0)
   const groupCost = (name: string) => groupTotal(name).reduce((s, r) => s + (costOf(r) ?? 0), 0)
   const pricedAt = priceDate([...prices.values()])
+  // магазин, з цін якого рахується вартість (найчастіше джерело)
+  const srcCount = new Map<string, number>()
+  for (const p of prices.values()) if (p.price_source) srcCount.set(p.price_source, (srcCount.get(p.price_source) ?? 0) + 1)
+  const calcSrc = [...srcCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
   const unitPrice = (r: PurchaseRow) => {
     const p = prices.get(r.product_id)
     if (!p) return null
@@ -591,7 +595,7 @@ function PurchaseTab({ order }: { order: Order }) {
         <div className="stat" title="Сума за цінами продуктів (брутто × ціна)">
           <div className="k">Вартість закупки</div>
           <div className="v">{uah(totalCost)}</div>
-          <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : pricedAt ? `ціни на ${pricedAt}` : ''}</div>
+          <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : pricedAt ? `ціни ${calcSrc} на ${pricedAt}` : ''}</div>
         </div>
         <div className="stat">
           <div className="k">{order.guests ? 'На 1 гостя' : 'Залишилось купити'}</div>
@@ -695,7 +699,7 @@ function PurchaseTab({ order }: { order: Order }) {
       </section>
       <p className="muted small no-print">
         Брутто — скільки закупити, нетто — вихід після обробки. Для штучних позицій (шт) брутто — кількість штук. Натисніть на рядок, щоб позначити як куплене.
-        {pricedAt ? ` Вартість — за звичайними цінами інтернет-магазинів станом на ${pricedAt} (без акцій і доставки); фактична сума може відрізнятися через фасування.` : ''}
+        {pricedAt ? ` Вартість — за звичайними цінами ${calcSrc} станом на ${pricedAt} (без акцій і доставки); фактична сума може відрізнятися через фасування. Ціни інших магазинів — у розділі «Продукти».` : ''}
       </p>
     </>
   )
