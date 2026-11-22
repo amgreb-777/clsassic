@@ -7,6 +7,7 @@ import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
 import CategoryChips from '../components/CategoryChips'
 import NutritionCard from '../components/NutritionCard'
+import StoreTotals, { type CostLine } from '../components/StoreTotals'
 import { addN, gFmt, kcalFmt, ZERO, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
 import { averagePrice, ingredientCost, priceDate, uah } from '../lib/cost'
@@ -168,6 +169,44 @@ export default function OrderEdit() {
   const totalNutr = selected.reduce((s, x) => (nutr.get(x.dish.id) ? addN(s, nutr.get(x.dish.id)!, num(x.raw)) : s), ZERO)
   const missingNutr = selected.reduce((s, x) => s + (nutr.get(x.dish.id)?.missing ?? 0), 0)
   const totalCost = selected.reduce((s, x) => s + num(x.raw) * Number(costs.get(x.dish.id)?.cost ?? 0), 0)
+  const missingCost = selected.reduce((s, x) => s + (costs.get(x.dish.id)?.missing ?? 0), 0)
+  const menuPricedAt = selected.reduce<string | null>((m, x) => {
+    const d = costs.get(x.dish.id)?.price_to
+    return d && (!m || d > m) ? d : m
+  }, null)
+
+  // склад обраних страв — щоб порахувати вартість меню в кожному магазині
+  const [menuIngs, setMenuIngs] = useState<Pick<Ingredient, 'dish_id' | 'product_id' | 'gross' | 'net' | 'unit'>[]>([])
+  const [calcStore, setCalcStore] = useState('')
+  const dishIdsKey = selected.map((x) => x.dish.id).sort((a, b) => a - b).join(',')
+  useEffect(() => {
+    if (!dishIdsKey) return
+    let cancelled = false
+    fetchAll<Pick<Ingredient, 'dish_id' | 'product_id' | 'gross' | 'net' | 'unit'>>((f, t) =>
+      supabase.from('dish_ingredients').select('dish_id, product_id, gross, net, unit').in('dish_id', dishIdsKey.split(',').map(Number)).range(f, t),
+    )
+      .then((r) => !cancelled && setMenuIngs(r))
+      .catch(() => {
+        /* не критично для меню */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [dishIdsKey])
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', 'price_store').maybeSingle().then(({ data }) => data?.value && setCalcStore(data.value))
+  }, [])
+  const menuLines = useMemo<CostLine[]>(
+    () =>
+      menuIngs
+        .filter((i) => items[i.dish_id] !== undefined)
+        .map((i) => {
+          const q = num(items[i.dish_id])
+          return { product_id: i.product_id, unit: i.unit, gross: Number(i.gross) * q, net: Number(i.net) * q }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [menuIngs, items],
+  )
 
   if (error && !order)
     return (
@@ -280,6 +319,41 @@ export default function OrderEdit() {
 
       {tab === 'menu' && (
         <>
+          {selected.length > 0 && (
+            <div className="stats four no-print">
+              <div className="stat">
+                <div className="k">Страв у меню</div>
+                <div className="v">{selected.length}</div>
+                <div className="kbzv">порцій: {fmt(totalPortions)}</div>
+              </div>
+              <div className="stat cost-card" title="Собівартість меню: брутто × ціни продуктів">
+                <div className="k">Собівартість меню</div>
+                <div className="v">{uah(totalCost)}</div>
+                <div className="kbzv">
+                  {missingCost ? (
+                    <span className="warn-text">без ціни: {missingCost}</span>
+                  ) : menuPricedAt ? (
+                    `ціни ${calcStore === 'Середня' ? 'середні' : calcStore} на ${new Date(menuPricedAt + 'T00:00:00').toLocaleDateString('uk-UA')}`
+                  ) : (
+                    ''
+                  )}
+                </div>
+                <StoreTotals lines={menuLines} exclude={calcStore} />
+              </div>
+              <div className="stat">
+                <div className="k">На 1 гостя</div>
+                <div className="v">{order.guests ? uah(totalCost / order.guests) : '—'}</div>
+                <div className="kbzv">
+                  {order.guests ? `${fmt(totalWeight / order.guests)} г · ${kcalFmt(totalNutr.kcal / order.guests)} ккал` : 'вкажіть кількість гостей'}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="k">Вага меню</div>
+                <div className="v">{fmt(totalWeight / 1000)} кг</div>
+                <div className="kbzv">{kcalFmt(totalNutr.kcal)} ккал усього</div>
+              </div>
+            </div>
+          )}
           <MenuTab dishes={dishes} nutr={nutr} costs={costs} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
           {selected.length > 0 && <NutritionCard total={totalNutr} guests={order.guests} missing={missingNutr} />}
           {selected.length > 0 && (
@@ -511,27 +585,6 @@ function PurchaseTab({ order }: { order: Order }) {
     }
   }, [order.id])
 
-  // ціни всіх магазинів для позицій закупки — для порівняння в плитці «Вартість закупки»
-  const [storeMap, setStoreMap] = useState<Map<number, Record<string, StorePrice>> | null>(null)
-  useEffect(() => {
-    if (!rows?.length) return
-    let cancelled = false
-    const ids = [...new Set(rows.map((r) => r.product_id))]
-    fetchAll<StorePrice>((f, t) => supabase.from('product_prices').select('*').in('product_id', ids).range(f, t))
-      .then((list) => {
-        if (cancelled) return
-        const m = new Map<number, Record<string, StorePrice>>()
-        for (const x of list) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
-        setStoreMap(m)
-      })
-      .catch(() => {
-        /* порівняння магазинів — не критичне */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [rows])
-
   function save(next: Set<string>) {
     setBought(next)
     try {
@@ -585,45 +638,7 @@ function PurchaseTab({ order }: { order: Order }) {
   const srcCount = new Map<string, number>()
   for (const p of prices.values()) if (p.price_source) srcCount.set(p.price_source, (srcCount.get(p.price_source) ?? 0) + 1)
   const calcSrc = [...srcCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
-  // вартість усієї закупки в кожному магазині (+ середня ціна і оптимальний кошик з наявних)
-  type StoreTotal = { label: string; sum: number; missing: number; kind: 'store' | 'avg' | 'opt' }
-  const storeTotals: StoreTotal[] | null = storeMap
-    ? (() => {
-        const cost = (r: PurchaseRow, x?: StorePrice) => (x ? ingredientCost(r.unit, Number(r.gross_total), Number(r.net_total), x) : null)
-        const out: StoreTotal[] = STORES.map((st) => {
-          let sum = 0
-          let missing = 0
-          for (const r of rows) {
-            const c = cost(r, storeMap.get(r.product_id)?.[st])
-            if (c == null) missing++
-            else sum += c
-          }
-          return { label: st, sum, missing, kind: 'store' }
-        })
-        let avg = 0
-        let avgMissing = 0
-        let opt = 0
-        let optMissing = 0
-        for (const r of rows) {
-          const rec = storeMap.get(r.product_id)
-          const a = cost(r, averagePrice(rec, STORES, r.product_id))
-          if (a == null) avgMissing++
-          else avg += a
-          const xs = STORES.map((st) => rec?.[st]).filter((x) => x && !/наявн/.test(x.note ?? '')).map((x) => cost(r, x)).filter((c): c is number => c != null)
-          if (xs.length) opt += Math.min(...xs)
-          else optMissing++
-        }
-        out.push({ label: 'Середня ціна', sum: avg, missing: avgMissing, kind: 'avg' })
-        out.push({ label: 'Оптимальний кошик', sum: opt, missing: optMissing, kind: 'opt' })
-        return out
-      })()
-    : null
-  // найдешевший магазин, де є все (порівнюємо з усіма, зокрема з магазином розрахунку)
-  const cheapestStore = storeTotals
-    ?.filter((t) => t.kind === 'store' && t.missing === 0)
-    .reduce<StoreTotal | null>((a, b) => (!a || b.sum < a.sum ? b : a), null)?.label
-  // у плитці показуємо інші магазини (магазин розрахунку — це головне число)
-  const otherTotals = storeTotals?.filter((t) => t.label !== calcSrc)
+  const purchaseLines = rows.map((r) => ({ product_id: r.product_id, unit: r.unit, gross: Number(r.gross_total), net: Number(r.net_total) }))
   const unitPrice = (r: PurchaseRow) => {
     const p = prices.get(r.product_id)
     if (!p) return null
@@ -684,29 +699,7 @@ function PurchaseTab({ order }: { order: Order }) {
           <div className="k">Вартість закупки</div>
           <div className="v">{uah(totalCost)}</div>
           <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : pricedAt ? `ціни ${calcSrc} на ${pricedAt}` : ''}</div>
-          {otherTotals && (
-            <ul className="store-totals" aria-label="Вартість закупки в інших магазинах">
-              {otherTotals.map((t) => (
-                <li
-                  key={t.label}
-                  className={`${t.kind}${t.label === cheapestStore ? ' best' : ''}`}
-                  title={
-                    t.kind === 'opt'
-                      ? 'Кожна позиція — в магазині, де вона найдешевша (серед товарів у наявності)'
-                      : t.kind === 'avg'
-                        ? 'За середньою ціною магазинів'
-                        : t.missing
-                          ? `Сума без ${t.missing} позицій, яких немає в ${t.label}`
-                          : `Уся закупка в ${t.label}`
-                  }
-                >
-                  <span>{t.label}</span>
-                  <b>{uah(t.sum)}</b>
-                  {t.missing > 0 && <em>без {t.missing}</em>}
-                </li>
-              ))}
-            </ul>
-          )}
+          <StoreTotals lines={purchaseLines} exclude={calcSrc} />
         </div>
         <div className="stat">
           <div className="k">{order.guests ? 'На 1 гостя' : 'Залишилось купити'}</div>
