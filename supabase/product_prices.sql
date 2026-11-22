@@ -1,8 +1,7 @@
 -- Ціни продуктів: Сільпо (доставка по Києву, включно з розширеним асортиментом),
 -- звичайна ціна без акцій, зібрано 22.11.2026 через коннектор Сільпо.
 -- price_kg — грн/кг (рідини — грн/л), price_pcs — грн/шт. Застосовується після міграції 20261122120000_prices.sql.
--- Без ціни (немає в Сільпо): Картопляні крокети, Лайм, Печінка куряча, Профітролі (шт), Салат Фрізе,
--- Скумбрія тушка, Соус Табаско, Соус Теріякі, Тушка сома, Тушка судака, Язик телячий.
+-- 11 продуктів, яких немає в Сільпо, — з METRO, NOVUS, Auchan, MegaMarket (zakaz.ua, доставка по Києву) — у кінці файлу.
 
 update public.products p set price_kg=v.kg::numeric, price_pcs=v.pcs::numeric, price_source=v.src, price_item=v.item, price_pack=v.pack, price_url=case when v.slug is null then null else 'https://silpo.ua/product/'||v.slug end, price_note=v.note, price_at=date '2026-11-22'
 from (values
@@ -257,3 +256,19 @@ from (values
 (205,139.46,3.49,'Сільпо','Хліб «Київхліб» тостовий світлий нарізаний','350г','khlib-kyivkhlib-tostovyi-svitlyi-narizanyi-764208','оцінка ~14 скибок у 350 г'),
 (206,119.67,2.82,'Сільпо','Хліб «Кулиничі» «Європейський» тостовий білий','330г','khlib-kulynychi-yevropeiskyi-tostovyi-bilyi-526712','оцінка ~14 скибок у 330 г')
 ) as v(id,kg,pcs,src,item,pack,slug,note) where p.id=v.id;
+
+-- Продукти, яких немає в Сільпо: METRO / NOVUS / Auchan / MegaMarket (zakaz.ua, Київ), 22.11.2026
+update public.products p set price_kg=v.kg::numeric, price_pcs=v.pcs::numeric, price_source=v.src, price_item=v.item, price_pack=v.pack, price_url=v.url, price_note=v.note, price_at=date '2026-11-22'
+from (values
+(69, 219.6, null, 'METRO', 'Крокети картопляні Metro Chef заморожені', '2,5кг', 'https://metro.zakaz.ua/uk/products/ovochi-metro-shef-2500g--04337182250203/', '549 грн / 2,5 кг; на момент збору немає в наявності'),
+(97, 349.01, 24.43, 'METRO', 'Лайм Metro Chef', 'кг', 'https://metro.zakaz.ua/uk/products/frukt-tsitrus--metro28256900000000/', 'шт ≈ 70 г (оцінка)'),
+(147, 159.0, null, 'MegaMarket', 'Печінка куряча', 'кг', 'https://megamarket.zakaz.ua/uk/products/pechinka--megamarket00000000148009/', null),
+(151, 665.83, null, 'METRO', 'Профітролі Metro Chef білі заморожені', '1,2кг', 'https://metro.zakaz.ua/uk/products/profitroli-metro-shef-1200g--04337182254539/', '799 грн / 1,2 кг; вартість за вагою з техкарти (1 шт ≈ 10 г ≈ 6,66 грн)'),
+(163, 398.0, null, 'METRO', 'Салат Metro Chef Фрізе різаний', '500г', 'https://metro.zakaz.ua/uk/products/salat-salat-500g-ukrayina--04820293124889/', null),
+(174, 399.0, null, 'NOVUS', 'Скумбрія свіжоморожена', 'кг', 'https://novus.zakaz.ua/uk/products/riba-skumbriia--novus02859573000000/', null),
+(186, 2980.0, null, 'Auchan', 'Соус Tabasco з червоним перцем', '150мл', 'https://auchan.zakaz.ua/uk/products/sous-priprava-tabasko-150ml-ssha--00011210000155/', 'мл прирівняно до г; 447 грн / 150 мл'),
+(188, 243.0, null, 'METRO', 'Соус Metro Chef Теріякі', '1кг', 'https://metro.zakaz.ua/uk/products/sous-priprava-metro-shef-1000g-ukrayina--04820071649429/', null),
+(210, 289.0, null, 'Auchan', 'Сом кларієвий охолоджений 800г+', 'кг', 'https://auchan.zakaz.ua/uk/products/riba-som--auchan02528698000000/', 'зараз акція 269 грн'),
+(211, 580.0, null, 'MegaMarket', 'Судак тушка', 'кг', 'https://megamarket.zakaz.ua/uk/products/tushka-sudak--megamarket00000000168816/', null),
+(254, 480.0, null, 'MegaMarket', 'Яловичина язик', 'кг', 'https://megamarket.zakaz.ua/uk/products/iazik--megamarket00000000149099/', 'телячого язика немає — яловичий')
+) as v(id,kg,pcs,src,item,pack,url,note) where p.id=v.id;

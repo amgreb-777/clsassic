@@ -294,7 +294,7 @@ export default function Products() {
                             {priceParts(p).map((x) => (
                               <div key={x} className="tnum">{x}</div>
                             ))}
-                            {p.price_source && p.price_source !== 'Сільпо' && <div className="src">{p.price_source}</div>}
+                            {p.price_source && !p.price_source.startsWith('Сільпо') && <div className="src">{p.price_source}</div>}
                           </>
                         )}
                       </td>
