@@ -725,3 +725,14 @@ th.num .sort-btn { justify-content: flex-end; }
 .sort-sm { display: none; }
 @media (max-width: 700px) { .sort-sm { display: block; flex: 1 1 100%; } }
 .store-cell.avg { color: var(--ink-2); font-style: italic; border-left: 1px dashed var(--line-strong); }
+/* Вартість закупки в інших магазинах */
+.store-totals { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--line); display: grid; gap: 3px; font-size: 0.8rem; }
+.store-totals li { display: flex; align-items: baseline; gap: 6px; color: var(--ink-2); }
+.store-totals li span { flex: 1; min-width: 0; color: var(--muted); }
+.store-totals li b { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.store-totals li em { font-style: normal; font-size: 0.7rem; color: var(--warn); white-space: nowrap; }
+.store-totals li.best b, .store-totals li.best span { color: var(--success); }
+.store-totals li.avg span, .store-totals li.avg b { font-style: italic; }
+.store-totals li.opt { margin-top: 2px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.store-totals li.opt span { color: var(--gold-ink); font-weight: 600; }
+@media (max-width: 600px) { .stats.four .stat.cost-card { grid-column: 1 / -1; grid-row: 1; } }

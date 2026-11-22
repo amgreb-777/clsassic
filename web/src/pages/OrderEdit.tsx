@@ -9,7 +9,7 @@ import CategoryChips from '../components/CategoryChips'
 import NutritionCard from '../components/NutritionCard'
 import { addN, gFmt, kcalFmt, ZERO, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
-import { ingredientCost, priceDate, uah } from '../lib/cost'
+import { averagePrice, ingredientCost, priceDate, uah } from '../lib/cost'
 import { exportPurchaseXlsx } from '../lib/exportPurchase'
 
 /** Порядок відділів у списку закупки — як маршрут магазином/ринком. */
@@ -511,6 +511,27 @@ function PurchaseTab({ order }: { order: Order }) {
     }
   }, [order.id])
 
+  // ціни всіх магазинів для позицій закупки — для порівняння в плитці «Вартість закупки»
+  const [storeMap, setStoreMap] = useState<Map<number, Record<string, StorePrice>> | null>(null)
+  useEffect(() => {
+    if (!rows?.length) return
+    let cancelled = false
+    const ids = [...new Set(rows.map((r) => r.product_id))]
+    fetchAll<StorePrice>((f, t) => supabase.from('product_prices').select('*').in('product_id', ids).range(f, t))
+      .then((list) => {
+        if (cancelled) return
+        const m = new Map<number, Record<string, StorePrice>>()
+        for (const x of list) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
+        setStoreMap(m)
+      })
+      .catch(() => {
+        /* порівняння магазинів — не критичне */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [rows])
+
   function save(next: Set<string>) {
     setBought(next)
     try {
@@ -564,6 +585,45 @@ function PurchaseTab({ order }: { order: Order }) {
   const srcCount = new Map<string, number>()
   for (const p of prices.values()) if (p.price_source) srcCount.set(p.price_source, (srcCount.get(p.price_source) ?? 0) + 1)
   const calcSrc = [...srcCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
+  // вартість усієї закупки в кожному магазині (+ середня ціна і оптимальний кошик з наявних)
+  type StoreTotal = { label: string; sum: number; missing: number; kind: 'store' | 'avg' | 'opt' }
+  const storeTotals: StoreTotal[] | null = storeMap
+    ? (() => {
+        const cost = (r: PurchaseRow, x?: StorePrice) => (x ? ingredientCost(r.unit, Number(r.gross_total), Number(r.net_total), x) : null)
+        const out: StoreTotal[] = STORES.map((st) => {
+          let sum = 0
+          let missing = 0
+          for (const r of rows) {
+            const c = cost(r, storeMap.get(r.product_id)?.[st])
+            if (c == null) missing++
+            else sum += c
+          }
+          return { label: st, sum, missing, kind: 'store' }
+        })
+        let avg = 0
+        let avgMissing = 0
+        let opt = 0
+        let optMissing = 0
+        for (const r of rows) {
+          const rec = storeMap.get(r.product_id)
+          const a = cost(r, averagePrice(rec, STORES, r.product_id))
+          if (a == null) avgMissing++
+          else avg += a
+          const xs = STORES.map((st) => rec?.[st]).filter((x) => x && !/наявн/.test(x.note ?? '')).map((x) => cost(r, x)).filter((c): c is number => c != null)
+          if (xs.length) opt += Math.min(...xs)
+          else optMissing++
+        }
+        out.push({ label: 'Середня ціна', sum: avg, missing: avgMissing, kind: 'avg' })
+        out.push({ label: 'Оптимальний кошик', sum: opt, missing: optMissing, kind: 'opt' })
+        return out
+      })()
+    : null
+  // найдешевший магазин, де є все (порівнюємо з усіма, зокрема з магазином розрахунку)
+  const cheapestStore = storeTotals
+    ?.filter((t) => t.kind === 'store' && t.missing === 0)
+    .reduce<StoreTotal | null>((a, b) => (!a || b.sum < a.sum ? b : a), null)?.label
+  // у плитці показуємо інші магазини (магазин розрахунку — це головне число)
+  const otherTotals = storeTotals?.filter((t) => t.label !== calcSrc)
   const unitPrice = (r: PurchaseRow) => {
     const p = prices.get(r.product_id)
     if (!p) return null
@@ -583,21 +643,9 @@ function PurchaseTab({ order }: { order: Order }) {
       const m = new Map<number, Record<string, StorePrice>>()
       for (const x of list) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
       // «Середня» — середнє арифметичне цін магазинів (без ручних), як у режимі розрахунку «Середня по магазинах»
-      const mean = (vs: number[]) => (vs.length ? Math.round((vs.reduce((a, b) => a + b, 0) / vs.length) * 100) / 100 : null)
       for (const [id, rec] of m) {
-        const xs = STORES.map((st) => rec[st]).filter((x): x is StorePrice => !!x && (x.price_kg != null || x.price_pcs != null))
-        if (!xs.length) continue
-        rec['Середня'] = {
-          product_id: id,
-          store: 'Середня',
-          price_kg: mean(xs.filter((x) => x.price_kg != null).map((x) => Number(x.price_kg))),
-          price_pcs: mean(xs.filter((x) => x.price_pcs != null).map((x) => Number(x.price_pcs))),
-          item: `середня з ${xs.length} магаз.`,
-          pack: null,
-          url: null,
-          note: null,
-          collected_at: xs.map((x) => x.collected_at).sort().pop() ?? '',
-        }
+        const a = averagePrice(rec, STORES, id)
+        if (a) rec['Середня'] = a
       }
       const stores = [...STORES, 'Середня', ...(list.some((x) => x.store === 'Вручну') ? ['Вручну'] : [])]
       await exportPurchaseXlsx({ order, rows: ordered, category: cat, calc: prices, storePrices: m, stores, calcStore: st?.value ?? calcSrc })
@@ -632,10 +680,33 @@ function PurchaseTab({ order }: { order: Order }) {
     <>
       <div className="stats four no-print">
         <div className="stat"><div className="k">Позицій у списку</div><div className="v">{rows.length}</div><div className="kbzv">брутто {qty(totalGross, 'г', true)}</div></div>
-        <div className="stat" title="Сума за цінами продуктів (брутто × ціна)">
+        <div className="stat cost-card" title="Сума за цінами продуктів (брутто × ціна)">
           <div className="k">Вартість закупки</div>
           <div className="v">{uah(totalCost)}</div>
           <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : pricedAt ? `ціни ${calcSrc} на ${pricedAt}` : ''}</div>
+          {otherTotals && (
+            <ul className="store-totals" aria-label="Вартість закупки в інших магазинах">
+              {otherTotals.map((t) => (
+                <li
+                  key={t.label}
+                  className={`${t.kind}${t.label === cheapestStore ? ' best' : ''}`}
+                  title={
+                    t.kind === 'opt'
+                      ? 'Кожна позиція — в магазині, де вона найдешевша (серед товарів у наявності)'
+                      : t.kind === 'avg'
+                        ? 'За середньою ціною магазинів'
+                        : t.missing
+                          ? `Сума без ${t.missing} позицій, яких немає в ${t.label}`
+                          : `Уся закупка в ${t.label}`
+                  }
+                >
+                  <span>{t.label}</span>
+                  <b>{uah(t.sum)}</b>
+                  {t.missing > 0 && <em>без {t.missing}</em>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="stat">
           <div className="k">{order.guests ? 'На 1 гостя' : 'Залишилось купити'}</div>
