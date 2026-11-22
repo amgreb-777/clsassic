@@ -712,3 +712,15 @@ th.calc { color: var(--gold-ink); background: var(--gold-soft); }
 @media (max-width: 600px) { .calc-store { min-width: 0; } }
 .store-cell.used { background: color-mix(in srgb, var(--gold-soft) 55%, transparent); font-weight: 600; box-shadow: inset 2px 0 0 var(--gold); }
 .used-tag { font-size: 0.62rem; font-weight: 600; color: var(--gold-ink); letter-spacing: 0.02em; }
+/* Сортування колонок */
+.sort-btn { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+th.num .sort-btn { justify-content: flex-end; }
+.sort-btn:hover { color: var(--ink); }
+.sort-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+.sort-btn .sort-ind { font-size: 0.62rem; opacity: 0.35; }
+.sort-btn.active { color: var(--ink); }
+.sort-btn.active .sort-ind { opacity: 1; color: var(--gold-ink); }
+.sort-btn .calc-tag { display: block; }
+.date-tag { font-size: 0.66rem; color: var(--muted); font-weight: 500; }
+.sort-sm { display: none; }
+@media (max-width: 700px) { .sort-sm { display: block; flex: 1 1 100%; } }
