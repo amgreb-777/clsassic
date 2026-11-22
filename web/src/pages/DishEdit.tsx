@@ -6,6 +6,7 @@ import { errText, fmt } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Skeleton, useConfirm, useToast } from '../components/ui'
 import { addN, gFmt, gramsBasis, kcalFmt, ZERO } from '../lib/nutrition'
+import { ingredientCost, uah } from '../lib/cost'
 
 type Line = { key: string; product: string; gross: string; net: string; unit: Unit }
 let seq = 0
@@ -76,6 +77,12 @@ export default function DishEdit() {
     const g = gramsBasis(l.unit, n(l.gross), n(l.net)) / 100
     return addN(s, { kcal: Number(pr.kcal), protein: Number(pr.protein ?? 0), fat: Number(pr.fat ?? 0), carbs: Number(pr.carbs ?? 0) }, g)
   }, ZERO)
+
+  // Собівартість порції (від брутто) з поточних рядків
+  const lineCost = (l: Line) => ingredientCost(l.unit, n(l.gross), n(l.net), byName.get(l.product.trim().toLowerCase()))
+  const filled = lines.filter((l) => l.product.trim())
+  const noPrice = filled.filter((l) => lineCost(l) == null).length
+  const portionCost = filled.reduce((s, l) => s + (lineCost(l) ?? 0), 0)
 
   function upd(key: string, patch: Partial<Line>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -209,7 +216,7 @@ export default function DishEdit() {
             <h3>Технологічна карта</h3>
             <p>Склад на 1 порцію. Нові назви продуктів автоматично додаються в довідник.</p>
           </div>
-          <div className="stats three">
+          <div className="stats four">
             <div className="stat"><div className="k">Вихід, нетто</div><div className="v">{fmt(netAll)} г</div></div>
             <div className="stat">
               <div className="k">Порція</div>
@@ -219,6 +226,11 @@ export default function DishEdit() {
               <div className="k">Ккал / порцію</div>
               <div className="v">{kcalFmt(portionNutr.kcal)}</div>
               <div className="kbzv">Б {gFmt(portionNutr.protein)} · Ж {gFmt(portionNutr.fat)} · В {gFmt(portionNutr.carbs)} г</div>
+            </div>
+            <div className="stat" title="Собівартість 1 порції: брутто × ціни продуктів">
+              <div className="k">Собівартість</div>
+              <div className="v">{uah(portionCost)}</div>
+              <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : 'за 1 порцію'}</div>
             </div>
           </div>
           {noNutr > 0 && (
@@ -241,6 +253,7 @@ export default function DishEdit() {
                 <th className="num">Брутто</th>
                 <th>Од.</th>
                 <th className="num">Нетто, г</th>
+                <th className="num">Вартість</th>
                 <th style={{ width: 48 }} />
               </tr>
             </thead>
@@ -274,6 +287,9 @@ export default function DishEdit() {
                         onChange={(e) => upd(l.key, { net: e.target.value })}
                         aria-label="Нетто"
                       />
+                    </td>
+                    <td className="num c-cost" data-label="Вартість">
+                      {l.product.trim() ? (lineCost(l) == null ? <span className="warn-text" title="Немає ціни продукту">—</span> : uah(lineCost(l)!)) : ''}
                     </td>
                     <td className="actions">
                       <button className="btn ghost icon sm danger" aria-label="Прибрати продукт" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>

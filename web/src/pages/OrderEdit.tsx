@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchAll, supabase } from '../lib/supabase'
-import { STATUS_LABEL, type Dish, type Ingredient, type Order, type OrderStatus, type PurchaseRow } from '../lib/types'
+import { STATUS_LABEL, type Dish, type DishCost, type Ingredient, type Order, type OrderStatus, type Product, type PurchaseRow } from '../lib/types'
 import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
@@ -9,6 +9,7 @@ import CategoryChips from '../components/CategoryChips'
 import NutritionCard from '../components/NutritionCard'
 import { addN, gFmt, kcalFmt, ZERO, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
+import { ingredientCost, priceDate, uah } from '../lib/cost'
 
 /** Порядок відділів у списку закупки — як маршрут магазином/ринком. */
 const AISLES = [
@@ -19,6 +20,7 @@ const AISLES = [
 const aisleRank = (c: string) => (c === NO_CAT ? 999 : AISLES.indexOf(c) === -1 ? 500 : AISLES.indexOf(c))
 
 type Tab = 'menu' | 'purchase' | 'breakdown'
+type PriceRow = Pick<Product, 'id' | 'price_kg' | 'price_pcs' | 'price_source' | 'price_item' | 'price_pack' | 'price_at'>
 
 export default function OrderEdit() {
   const orderId = Number(useParams().id)
@@ -27,6 +29,7 @@ export default function OrderEdit() {
   const [draft, setDraft] = useState<Order | null>(null)
   const [dishes, setDishes] = useState<Dish[]>([])
   const [nutr, setNutr] = useState<Map<number, DishNutr>>(new Map())
+  const [costs, setCosts] = useState<Map<number, DishCost>>(new Map())
   const [items, setItems] = useState<Record<number, string>>({}) // dish_id -> кількість (як введено)
   const [tab, setTab] = useState<Tab>('menu')
   const [error, setError] = useState<string | null>(null)
@@ -39,11 +42,12 @@ export default function OrderEdit() {
     let cancelled = false // ігноруємо застарілі відповіді (повторний рендер / зміна id)
     ;(async () => {
       try {
-        const [{ data: o, error: e1 }, ds, { data: its, error: e2 }, dn] = await Promise.all([
+        const [{ data: o, error: e1 }, ds, { data: its, error: e2 }, dn, dc] = await Promise.all([
           supabase.from('orders').select('*').eq('id', orderId).single(),
           fetchAll<Dish>((f, t) => supabase.from('dishes').select('*').order('name').range(f, t)),
           supabase.from('order_items').select('dish_id, quantity').eq('order_id', orderId),
           fetchAll<DishNutr>((f, t) => supabase.from('dish_nutrition').select('*').range(f, t)),
+          fetchAll<DishCost>((f, t) => supabase.from('dish_cost').select('*').range(f, t)),
         ])
         if (cancelled) return
         if (e1) throw e1
@@ -52,6 +56,7 @@ export default function OrderEdit() {
         setDraft(o)
         setDishes(ds)
         setNutr(new Map(dn.map((n) => [n.dish_id, n])))
+        setCosts(new Map(dc.map((c) => [c.dish_id, c])))
         setItems(Object.fromEntries((its ?? []).map((i) => [i.dish_id, String(i.quantity)])))
       } catch (e) {
         if (!cancelled) setError(errText(e))
@@ -160,6 +165,7 @@ export default function OrderEdit() {
   const totalWeight = selected.reduce((s, x) => s + num(x.raw) * (x.dish.portion_weight_g ?? 0), 0)
   const totalNutr = selected.reduce((s, x) => (nutr.get(x.dish.id) ? addN(s, nutr.get(x.dish.id)!, num(x.raw)) : s), ZERO)
   const missingNutr = selected.reduce((s, x) => s + (nutr.get(x.dish.id)?.missing ?? 0), 0)
+  const totalCost = selected.reduce((s, x) => s + num(x.raw) * Number(costs.get(x.dish.id)?.cost ?? 0), 0)
 
   if (error && !order)
     return (
@@ -272,18 +278,22 @@ export default function OrderEdit() {
 
       {tab === 'menu' && (
         <>
-          <MenuTab dishes={dishes} nutr={nutr} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
+          <MenuTab dishes={dishes} nutr={nutr} costs={costs} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
           {selected.length > 0 && <NutritionCard total={totalNutr} guests={order.guests} missing={missingNutr} />}
           {selected.length > 0 && (
             <div className="summary-bar no-print">
               <div className="row wrap" style={{ gap: 24 }}>
                 <div className="item"><span className="k">Страв</span><span className="v">{selected.length}</span></div>
                 <div className="item opt"><span className="k">Порцій</span><span className="v">{fmt(totalPortions)}</span></div>
-                <div className="item"><span className="k">Вага</span><span className="v">{fmt(totalWeight / 1000)} кг</span></div>
+                <div className="item opt"><span className="k">Вага</span><span className="v">{fmt(totalWeight / 1000)} кг</span></div>
                 {order.guests ? (
-                  <div className="item opt"><span className="k">На гостя</span><span className="v">{fmt(totalWeight / order.guests)} г</span></div>
+                  <div className="item opt"><span className="k">Вага/гостя</span><span className="v">{fmt(totalWeight / order.guests)} г</span></div>
                 ) : null}
-                <div className="item"><span className="k">{order.guests ? 'Ккал/гостя' : 'Ккал'}</span><span className="v">{kcalFmt(order.guests ? totalNutr.kcal / order.guests : totalNutr.kcal)}</span></div>
+                <div className="item opt"><span className="k">{order.guests ? 'Ккал/гостя' : 'Ккал'}</span><span className="v">{kcalFmt(order.guests ? totalNutr.kcal / order.guests : totalNutr.kcal)}</span></div>
+                <div className="item"><span className="k">Собівартість</span><span className="v">{uah(totalCost)}</span></div>
+                {order.guests ? (
+                  <div className="item"><span className="k">На гостя</span><span className="v">{uah(totalCost / order.guests)}</span></div>
+                ) : null}
               </div>
               <button className="btn" onClick={() => goTab('purchase')}>
                 <Icon name="cart" size={18} /> <span className="btn-text">До закупки</span> <Icon name="next" size={16} />
@@ -293,7 +303,7 @@ export default function OrderEdit() {
         </>
       )}
       {tab === 'purchase' && <PurchaseTab order={order} />}
-      {tab === 'breakdown' && <BreakdownTab order={order} selected={selected} nutr={nutr} />}
+      {tab === 'breakdown' && <BreakdownTab order={order} selected={selected} nutr={nutr} costs={costs} />}
     </div>
   )
 }
@@ -325,13 +335,14 @@ function Stepper({ value, onChange, onCommit, label }: { value: string; onChange
 function MenuTab(props: {
   dishes: Dish[]
   nutr: Map<number, DishNutr>
+  costs: Map<number, DishCost>
   selected: { dish: Dish; raw: string }[]
   items: Record<number, string>
   guests: number | null
   onQty: (id: number, raw: string, immediate?: boolean) => void
   onRemove: (id: number) => void
 }) {
-  const { dishes, nutr, selected, items, guests, onQty, onRemove } = props
+  const { dishes, nutr, costs, selected, items, guests, onQty, onRemove } = props
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
   const active = useMemo(() => dishes.filter((d) => d.is_active), [dishes])
@@ -362,6 +373,7 @@ function MenuTab(props: {
                     <div className="name">{d.name}</div>
                     <div className="sub">
                       {d.category} · {fmt(d.portion_weight_g)} г{nutr.get(d.id) ? ` · ${kcalFmt(nutr.get(d.id)!.kcal)} ккал` : ''}
+                      {costs.get(d.id) && Number(costs.get(d.id)!.cost) > 0 ? ` · ${uah(Number(costs.get(d.id)!.cost))}` : ''}
                     </div>
                   </div>
                   {inOrder ? (
@@ -402,6 +414,7 @@ function MenuTab(props: {
                   <th className="num hide-sm">Порція, г</th>
                   <th className="num">Вага, кг</th>
                   <th className="num hide-sm">Ккал</th>
+                  <th className="num">Вартість</th>
                   <th />
                 </tr>
               </thead>
@@ -426,6 +439,9 @@ function MenuTab(props: {
                     <td className="num strong c-weight">{fmt((num(raw) * (dish.portion_weight_g ?? 0)) / 1000)}</td>
                     <td className="num hide-sm muted" title={nutr.get(dish.id) ? `На порцію: ${kcalFmt(nutr.get(dish.id)!.kcal)} ккал` : undefined}>
                       {nutr.get(dish.id) ? kcalFmt(num(raw) * nutr.get(dish.id)!.kcal) : '—'}
+                    </td>
+                    <td className="num cost c-cost" title={costs.get(dish.id) ? `Порція: ${uah(Number(costs.get(dish.id)!.cost))}` : undefined}>
+                      {costs.get(dish.id) ? uah(num(raw) * Number(costs.get(dish.id)!.cost)) : '—'}
                     </td>
                     <td className="actions">
                       <button className="btn ghost icon sm danger" onClick={() => onRemove(dish.id)} aria-label={`Прибрати «${dish.name}»`} title="Прибрати з меню">
@@ -475,6 +491,7 @@ function PurchaseTab({ order }: { order: Order }) {
     }
   })
 
+  const [prices, setPrices] = useState<Map<number, PriceRow>>(new Map())
   useEffect(() => {
     let cancelled = false
     supabase.rpc('purchase_list', { p_order_id: order.id }).then(({ data, error }) => {
@@ -482,6 +499,9 @@ function PurchaseTab({ order }: { order: Order }) {
       if (error) setError(error.message)
       else setRows((data ?? []) as PurchaseRow[])
     })
+    fetchAll<PriceRow>((f, t) => supabase.from('products').select('id, price_kg, price_pcs, price_source, price_item, price_pack, price_at').range(f, t))
+      .then((ps) => !cancelled && setPrices(new Map(ps.map((p) => [p.id, p]))))
+      .catch((e) => !cancelled && setError(errText(e)))
     return () => {
       cancelled = true
     }
@@ -530,10 +550,23 @@ function PurchaseTab({ order }: { order: Order }) {
   const grams = rows.filter((r) => r.unit === 'г')
   const totalGross = grams.reduce((s, r) => s + Number(r.gross_total), 0)
   const totalNet = grams.reduce((s, r) => s + Number(r.net_total), 0)
+  const costOf = (r: PurchaseRow) => ingredientCost(r.unit, Number(r.gross_total), Number(r.net_total), prices.get(r.product_id))
+  const totalCost = rows.reduce((s, r) => s + (costOf(r) ?? 0), 0)
+  const noPrice = rows.filter((r) => costOf(r) == null).length
+  const leftCost = rows.filter((r) => !bought.has(k(r))).reduce((s, r) => s + (costOf(r) ?? 0), 0)
+  const groupCost = (name: string) => groupTotal(name).reduce((s, r) => s + (costOf(r) ?? 0), 0)
+  const pricedAt = priceDate([...prices.values()])
+  const unitPrice = (r: PurchaseRow) => {
+    const p = prices.get(r.product_id)
+    if (!p) return null
+    if (r.unit === 'шт' && p.price_pcs != null) return `${uah(Number(p.price_pcs))}/шт`
+    if (p.price_kg != null) return `${uah(Number(p.price_kg))}/${r.unit === 'л' ? 'л' : 'кг'}`
+    return null
+  }
 
   function exportCsv() {
     downloadCsv(`Закупка - ${order.title}.csv`, [
-      ['№', 'Категорія', 'Продукт', 'Од.', 'Брутто', 'Нетто, г', 'Кількість страв', 'Страви'],
+      ['№', 'Категорія', 'Продукт', 'Од.', 'Брутто', 'Нетто, г', 'Ціна', 'Вартість, грн', 'Джерело ціни', 'Кількість страв', 'Страви'],
       ...ordered.map((r, i) => [
         i + 1,
         cat(r),
@@ -541,17 +574,30 @@ function PurchaseTab({ order }: { order: Order }) {
         r.unit === 'г' && inKg ? 'кг' : r.unit,
         r.unit === 'г' && inKg ? Number(r.gross_total) / 1000 : Number(r.gross_total),
         Number(r.net_total),
+        unitPrice(r) ?? '',
+        costOf(r) == null ? '' : Math.round(costOf(r)! * 100) / 100,
+        prices.get(r.product_id)?.price_source ?? '',
         r.dishes_count,
         r.dishes.join(', '),
       ]),
+      ['', '', 'Разом', '', '', '', '', Math.round(totalCost * 100) / 100, pricedAt ? `ціни на ${pricedAt}` : '', '', ''],
     ])
   }
 
   return (
     <>
-      <div className="stats three no-print">
-        <div className="stat"><div className="k">Позицій у списку</div><div className="v">{rows.length}</div></div>
-        <div className="stat"><div className="k">Вагових продуктів, брутто</div><div className="v">{qty(totalGross, 'г', true)}</div></div>
+      <div className="stats four no-print">
+        <div className="stat"><div className="k">Позицій у списку</div><div className="v">{rows.length}</div><div className="kbzv">брутто {qty(totalGross, 'г', true)}</div></div>
+        <div className="stat" title="Сума за цінами продуктів (брутто × ціна)">
+          <div className="k">Вартість закупки</div>
+          <div className="v">{uah(totalCost)}</div>
+          <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : pricedAt ? `ціни на ${pricedAt}` : ''}</div>
+        </div>
+        <div className="stat">
+          <div className="k">{order.guests ? 'На 1 гостя' : 'Залишилось купити'}</div>
+          <div className="v">{order.guests ? uah(totalCost / order.guests) : uah(leftCost)}</div>
+          <div className="kbzv">{order.guests ? `залишилось: ${uah(leftCost)}` : ''}</div>
+        </div>
         <div className="stat">
           <div className="k">Куплено</div>
           <div className="v">{boughtCount} / {rows.length}</div>
@@ -582,6 +628,8 @@ function PurchaseTab({ order }: { order: Order }) {
                 <th>Продукт</th>
                 <th className="num">Закупити (брутто)</th>
                 <th className="num hide-sm">Нетто</th>
+                <th className="num hide-sm">Ціна</th>
+                <th className="num">Вартість</th>
                 <th className="num hide-sm">Страв</th>
               </tr>
             </thead>
@@ -590,10 +638,10 @@ function PurchaseTab({ order }: { order: Order }) {
                 <Fragment key={g.name || 'all'}>
                   {grouped && (
                     <tr className="group-row">
-                      <td colSpan={6}>
+                      <td colSpan={8}>
                         <span className="group-name">{g.name}</span>
                         <span className="group-meta">
-                          {groupBought(g.name)} / {groupTotal(g.name).length}
+                          <span className="cost">{uah(groupCost(g.name))}</span> · {groupBought(g.name)} / {groupTotal(g.name).length}
                           {groupBought(g.name) === groupTotal(g.name).length && <Icon name="check" size={14} />}
                         </span>
                       </td>
@@ -614,6 +662,10 @@ function PurchaseTab({ order }: { order: Order }) {
                         </td>
                         <td className="num strong">{qty(r.gross_total, r.unit, inKg)}</td>
                         <td className="num muted hide-sm">{qty(r.net_total, 'г', inKg)}</td>
+                        <td className="num muted hide-sm small" title={prices.get(r.product_id)?.price_item ? `${prices.get(r.product_id)!.price_source}: ${prices.get(r.product_id)!.price_item} (${prices.get(r.product_id)!.price_pack ?? ''})` : undefined}>
+                          {unitPrice(r) ?? '—'}
+                        </td>
+                        <td className="num cost">{costOf(r) == null ? <span className="warn-text">—</span> : uah(costOf(r)!)}</td>
                         <td className="num hide-sm" title={r.dishes.join('\n')}>
                           <span className="badge plain">{r.dishes_count}</span>
                         </td>
@@ -623,7 +675,7 @@ function PurchaseTab({ order }: { order: Order }) {
                 </Fragment>
               ))}
               {shown.length === 0 && (
-                <tr><td colSpan={6} className="muted center-text" style={{ padding: 24 }}>{onlyLeft ? 'Усе куплено 🎉' : 'Нічого не знайдено'}</td></tr>
+                <tr><td colSpan={8} className="muted center-text" style={{ padding: 24 }}>{onlyLeft ? 'Усе куплено 🎉' : 'Нічого не знайдено'}</td></tr>
               )}
             </tbody>
             <tfoot>
@@ -634,6 +686,8 @@ function PurchaseTab({ order }: { order: Order }) {
                 <td className="num">{qty(totalGross, 'г', inKg)}</td>
                 <td className="num hide-sm">{qty(totalNet, 'г', inKg)}</td>
                 <td className="hide-sm" />
+                <td className="num cost">{uah(totalCost)}</td>
+                <td className="hide-sm" />
               </tr>
             </tfoot>
           </table>
@@ -641,6 +695,7 @@ function PurchaseTab({ order }: { order: Order }) {
       </section>
       <p className="muted small no-print">
         Брутто — скільки закупити, нетто — вихід після обробки. Для штучних позицій (шт) брутто — кількість штук. Натисніть на рядок, щоб позначити як куплене.
+        {pricedAt ? ` Вартість — за звичайними цінами інтернет-магазинів станом на ${pricedAt} (без акцій і доставки); фактична сума може відрізнятися через фасування.` : ''}
       </p>
     </>
   )
@@ -648,7 +703,7 @@ function PurchaseTab({ order }: { order: Order }) {
 
 /* ---------------- 3. Склад по стравах ---------------- */
 
-function BreakdownTab({ order, selected, nutr }: { order: Order; selected: { dish: Dish; raw: string }[]; nutr: Map<number, DishNutr> }) {
+function BreakdownTab({ order, selected, nutr, costs }: { order: Order; selected: { dish: Dish; raw: string }[]; nutr: Map<number, DishNutr>; costs: Map<number, DishCost> }) {
   const [ings, setIngs] = useState<Ingredient[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const idsKey = selected.map((s) => s.dish.id).join(',')
@@ -706,6 +761,11 @@ function BreakdownTab({ order, selected, nutr }: { order: Order; selected: { dis
                 <span className="kbzv">
                   на порцію: {kcalFmt(nutr.get(dish.id)!.kcal)} ккал · Б {gFmt(nutr.get(dish.id)!.protein)} · Ж {gFmt(nutr.get(dish.id)!.fat)} · В{' '}
                   {gFmt(nutr.get(dish.id)!.carbs)} г
+                </span>
+              )}
+              {costs.get(dish.id) && (
+                <span className="kbzv cost">
+                  собівартість: {uah(Number(costs.get(dish.id)!.cost))} / порц. · всього {uah(Number(costs.get(dish.id)!.cost) * n)}
                 </span>
               )}
             </h4>
