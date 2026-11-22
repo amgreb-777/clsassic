@@ -2,6 +2,7 @@ import type { Order, PurchaseRow, StorePrice } from './types'
 import { ingredientCost } from './cost'
 import { downloadBlob } from './format'
 
+const AVG = 'Середня'
 const GOLD = 'FFF3EAD9'
 const GOLD_INK = 'FF7D6238'
 const GREEN = 'FF2F7A55'
@@ -60,14 +61,14 @@ export async function exportPurchaseXlsx(opts: {
     .filter(Boolean)
     .join(' · ')
   ws.getCell('A2').font = { color: { argb: MUTED }, size: 10 }
-  ws.getCell('A3').value = 'Сума = брутто × ціна. Фактична сума в магазині може бути більшою через фасування (купується ціла упаковка).'
+  ws.getCell('A3').value = 'Сума = брутто × ціна. Фактична сума в магазині може бути більшою через фасування (купується ціла упаковка). Середня ціна — середнє арифметичне цін магазинів, де товар знайдено (без ручних).'
   ws.getCell('A3').font = { color: { argb: MUTED }, size: 10, italic: true }
 
   const fixed = ['№', 'Відділ', 'Продукт', 'Кількість (брутто)', 'Од.', 'Для розрахунку: ціна', 'Для розрахунку: сума, ₴', 'Джерело']
   const head1: (string | null)[] = [...fixed]
   const head2: (string | null)[] = fixed.map(() => null)
   for (const st of stores) {
-    head1.push(st, null)
+    head1.push(st === AVG ? 'Середня ціна' : st, null)
     head2.push('ціна', 'сума, ₴')
   }
   head1.push('Найдешевше', null)
@@ -138,8 +139,8 @@ export async function exportPurchaseXlsx(opts: {
           totals[k].oos.push(r.product)
           oosCols.push(storeSumCol(k))
         }
-        // найдешевше — лише серед товарів у наявності; ручна ціна не магазин
-        if (st !== 'Вручну' && !oos && (!best || cost < best[1])) best = [k, cost]
+        // найдешевше — лише серед товарів у наявності; ручна і середня ціни — не магазини
+        if (st !== 'Вручну' && st !== AVG && !oos && (!best || cost < best[1])) best = [k, cost]
       }
     })
     const b = best as [number, number] | null
@@ -158,6 +159,8 @@ export async function exportPurchaseXlsx(opts: {
       for (const col of [storeSumCol(calcIdx) - 1, storeSumCol(calcIdx)])
         row.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GOLD } }
     for (const col of oosCols) row.getCell(col).font = { color: { argb: 'FF9A6200' } }
+    const avgK = stores.indexOf(AVG)
+    if (avgK >= 0) row.getCell(storeSumCol(avgK)).font = { italic: true }
     if (b) row.getCell(storeSumCol(b[0])).font = { bold: true, color: { argb: GREEN } }
   })
   const lastData = firstData + rows.length - 1
@@ -236,7 +239,16 @@ export async function exportPurchaseXlsx(opts: {
   stores
     .map((st, k) => ({ st, k }))
     .sort((a, b) => totals[a.k].missing.length - totals[b.k].missing.length || totals[a.k].sum - totals[b.k].sum)
-    .forEach(({ st, k }) => add(`Усе в ${st}`, totals[k].sum, totals[k].priced, totals[k].missing, undefined, totals[k].oos))
+    .forEach(({ st, k }) =>
+      add(
+        st === AVG ? 'За середньою ціною магазинів' : st === 'Вручну' ? 'Лише ручні ціни' : `Усе в ${st}`,
+        totals[k].sum,
+        totals[k].priced,
+        totals[k].missing,
+        undefined,
+        totals[k].oos,
+      ),
+    )
   add('Оптимальний кошик (кожна позиція — де найдешевше з наявних)', optimal, rows.length - optimalMissing, [], 'best')
   wc.addRow([])
   const note = wc.addRow(['Сума «Усе в …» — лише за позиціями, які є в цьому магазині; порівнюйте разом з колонкою «Немає в магазині». Позиції «немає в наявності» пораховані за ціною з картки товару.'])
