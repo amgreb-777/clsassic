@@ -193,7 +193,7 @@ export default function Team({ isAdmin, myEmail }: { isAdmin: boolean; myEmail: 
           <div style={{ padding: 16 }}><Skeleton rows={3} /></div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="team-table">
               <thead>
                 <tr>
                   <th>Учасник</th>
@@ -209,18 +209,18 @@ export default function Team({ isAdmin, myEmail }: { isAdmin: boolean; myEmail: 
                   const a = accounts[m.email]
                   return (
                     <tr key={m.email}>
-                      <td>
+                      <td className="tm-who">
                         <div className="row" style={{ gap: 10 }}>
                           <span className="avatar" aria-hidden="true">{m.email[0]}</span>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, wordBreak: 'break-all' }}>{m.email}</div>
+                            <div className="tm-email">{m.email}</div>
                             {me && <span className="small muted">це ви</span>}
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td className="tm-role">
                         {isAdmin && !me ? (
-                          <select value={m.role} onChange={(e) => changeRole(m, e.target.value as Role)} aria-label={`Роль ${m.email}`} style={{ minWidth: 150 }}>
+                          <select value={m.role} onChange={(e) => changeRole(m, e.target.value as Role)} aria-label={`Роль ${m.email}`} >
                             <option value="member">Учасник</option>
                             <option value="admin">Адміністратор</option>
                           </select>
@@ -228,9 +228,9 @@ export default function Team({ isAdmin, myEmail }: { isAdmin: boolean; myEmail: 
                           ROLE[m.role]
                         )}
                       </td>
-                      <td>{status(m)}</td>
+                      <td className="tm-status">{status(m)}</td>
                       <td className="muted hide-sm tnum">{a?.last_sign_in_at ? fmtDate(a.last_sign_in_at.slice(0, 10)) : '—'}</td>
-                      <td className="actions">
+                      <td className="actions tm-actions">
                         {isAdmin && !me && (
                           <>
                             {a?.has_account ? (
