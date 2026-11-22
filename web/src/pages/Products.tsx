@@ -9,6 +9,7 @@ import { catOf, categoryCounts, dishMatches, norm } from '../lib/search'
 import { gFmt, kcalFmt } from '../lib/nutrition'
 import { priceDate, priceParts, uah } from '../lib/cost'
 import { exportPricesXlsx } from '../lib/exportPrices'
+import RefreshPanel, { dateTime, fnError, type RefreshReport, type RefreshResult } from '../components/RefreshPanel'
 
 type Edit = { name: string; category: string; kcal: string; protein: string; fat: string; carbs: string; price_kg: string; price_pcs: string }
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
@@ -90,6 +91,59 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
   const [calcStore, setCalcStore] = useState('METRO')
   const [applying, setApplying] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState<string | null>(null)
+  const [report, setReport] = useState<RefreshReport | null>(null)
+
+  useEffect(() => {
+    if (!refreshing) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [refreshing])
+
+  async function refreshPrices() {
+    const ok = await confirm({
+      title: 'Оновити ціни в усіх магазинах?',
+      text: `Буде зібрано актуальні ціни з ${STORES.join(', ')} для всіх продуктів і перераховано собівартість (${calcStore}). Ручні ціни не змінюються. Займе 2–5 хвилин — не закривайте сторінку.`,
+      ok: 'Оновити',
+    })
+    if (!ok) return
+    const rep: RefreshReport = { byStore: [], topChanges: [], suspicious: [], at: null, error: null }
+    setReport(null)
+    try {
+      for (const [i, store] of STORES.entries()) {
+        setRefreshing(`Оновлюю ${store}… (${i + 1}/${STORES.length})`)
+        let r: RefreshResult | null = null
+        let err: string | null = null
+        // ліміт запитів магазину або тайм-аут функції — ще одна спроба
+        for (let attempt = 0; attempt < 2 && !r; attempt++) {
+          const { data, error } = await supabase.functions.invoke<RefreshResult>('refresh-prices', { body: { store } })
+          if (!error && data?.ok) r = data
+          else err = (data as { error?: string } | null)?.error ?? (await fnError(error))
+        }
+        if (r) {
+          rep.byStore.push({ store, updated: r.updated, changed: r.changed, failed: r.failed + r.timeout, gone: r.gone, total: r.total })
+          rep.topChanges.push(...r.topChanges)
+          rep.suspicious.push(...r.suspicious)
+        } else rep.byStore.push({ store, updated: 0, changed: 0, failed: 0, gone: 0, total: 0, error: err ?? 'помилка' })
+      }
+      setRefreshing('Перераховую собівартість…')
+      const { data, error } = await supabase.functions.invoke<RefreshResult>('refresh-prices', { body: { finalize: true } })
+      if (error || !data?.ok) rep.error = (data as { error?: string } | null)?.error ?? (await fnError(error))
+      else rep.at = data.at
+      rep.topChanges.sort((a, b) => Math.abs(b.to - b.from) / (b.from || 1) - Math.abs(a.to - a.from) / (a.from || 1))
+      setReport(rep)
+      const upd = rep.byStore.reduce((s, x) => s + x.updated, 0)
+      const ch = rep.byStore.reduce((s, x) => s + x.changed, 0)
+      toast(rep.error ? `Ціни зібрано, але перерахунок не вдався: ${rep.error}` : `Ціни оновлено: ${upd} перевірено, ${ch} змінилось`, rep.error ? 'err' : undefined)
+    } catch (e) {
+      toast(errText(e), 'err')
+    } finally {
+      setRefreshing(null)
+      load()
+    }
+  }
 
   async function exportXlsx() {
     if (!rows) return
@@ -129,13 +183,15 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
       const [prods, prices, { data: st }] = await Promise.all([
         fetchAll<Row>((f, t) => supabase.from('products').select('*, dish_ingredients(count)').order('name').range(f, t)),
         fetchAll<StorePrice>((f, t) => supabase.from('product_prices').select('*').range(f, t)),
-        supabase.from('app_settings').select('value').eq('key', 'price_store').maybeSingle(),
+        supabase.from('app_settings').select('key, value').in('key', ['price_store', 'prices_refreshed_at']),
       ])
       const m = new Map<number, Record<string, StorePrice>>()
       for (const x of prices) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
       setRows(prods)
       setSp(m)
-      if (st?.value) setCalcStore(st.value)
+      const set = Object.fromEntries((st ?? []).map((x) => [x.key, x.value]))
+      if (set.price_store) setCalcStore(set.price_store)
+      setRefreshedAt(set.prices_refreshed_at ?? null)
     } catch (e) {
       toast(errText(e), 'err')
     }
@@ -345,11 +401,18 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
             <p className="price-note">
               <Icon name="cart" size={16} />
               <span>
-                Ціни інтернет-магазинів з доставкою по Києву (звичайна ціна, без акцій) · зібрано <b>{pricedAt}</b> · для розрахунку собівартості — <b>{calcStore}</b>
+                Ціни інтернет-магазинів з доставкою по Києву (звичайна ціна, без акцій) · зібрано <b>{pricedAt}</b>
+                {refreshedAt && <> · оновлено <b>{dateTime(refreshedAt)}</b></>} · для розрахунку собівартості — <b>{calcStore}</b>
               </span>
             </p>
           )}
         </div>
+        <div className="calc-side">
+        {isAdmin && (
+          <button type="button" className="btn refresh-btn" disabled={!!refreshing || applying} onClick={refreshPrices} title="Зібрати актуальні ціни в усіх магазинах">
+            <Icon name="refresh" size={18} className={refreshing ? 'spin' : undefined} /> {refreshing ?? 'Оновити ціни'}
+          </button>
+        )}
         <label className="field calc-store">
           <span>Ціна для розрахунку</span>
           {isAdmin ? (
@@ -363,7 +426,10 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
             <b>{calcStore}</b>
           )}
         </label>
+        </div>
       </div>
+
+      {report && <RefreshPanel report={report} onClose={() => setReport(null)} />}
 
       <form className="card inline-form" onSubmit={add}>
         <label className="field grow">
