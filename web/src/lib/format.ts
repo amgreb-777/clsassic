@@ -21,12 +21,20 @@ export function downloadCsv(filename: string, rows: (string | number | null)[][]
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const csv = '﻿' + rows.map((r) => r.map(esc).join(';')).join('\r\n')
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), filename)
+}
+
+/** Завантаження файлу з правильною назвою (посилання має бути в DOM, URL звільняємо із затримкою). */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
