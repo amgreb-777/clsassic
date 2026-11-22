@@ -710,3 +710,5 @@ th.calc { color: var(--gold-ink); background: var(--gold-soft); }
 .store-line .calc { color: var(--gold-ink); font-weight: 600; }
 .store-line .best { color: var(--success); }
 @media (max-width: 600px) { .calc-store { min-width: 0; } }
+.store-cell.used { background: color-mix(in srgb, var(--gold-soft) 55%, transparent); font-weight: 600; box-shadow: inset 2px 0 0 var(--gold); }
+.used-tag { font-size: 0.62rem; font-weight: 600; color: var(--gold-ink); letter-spacing: 0.02em; }
