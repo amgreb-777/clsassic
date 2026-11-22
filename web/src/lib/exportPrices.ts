@@ -43,7 +43,7 @@ export async function exportPricesXlsx(opts: {
   const head1: (string | null)[] = [...fixed]
   const head2: (string | null)[] = fixed.map(() => null)
   for (const st of stores) {
-    head1.push(st, null)
+    head1.push(st === 'Середня' ? 'Середня ціна' : st, null)
     head2.push('₴/кг', '₴/шт')
   }
   head1.push('Найдешевше (₴/кг)', null)
@@ -89,7 +89,7 @@ export async function exportPricesXlsx(opts: {
       const x = r[st]
       const kg = num(x?.price_kg)
       vals.push(kg, num(x?.price_pcs))
-      if (kg != null && st !== 'Вручну' && (!best || kg < best[1])) best = [st, kg]
+      if (kg != null && st !== 'Вручну' && st !== 'Середня' && (!best || kg < best[1])) best = [st, kg]
     }
     vals.push(best?.[0] ?? '', best?.[1] ?? null)
     const row = ws.addRow(vals)
@@ -141,7 +141,7 @@ export async function exportPricesXlsx(opts: {
     const r = prices.get(p.id) ?? {}
     for (const st of stores) {
       const x = r[st]
-      if (!x) continue
+      if (!x || st === 'Середня') continue
       const row = wd.addRow({
         p: p.name,
         c: p.category ?? '',

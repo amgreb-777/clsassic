@@ -724,3 +724,4 @@ th.num .sort-btn { justify-content: flex-end; }
 .date-tag { font-size: 0.66rem; color: var(--muted); font-weight: 500; }
 .sort-sm { display: none; }
 @media (max-width: 700px) { .sort-sm { display: block; flex: 1 1 100%; } }
+.store-cell.avg { color: var(--ink-2); font-style: italic; border-left: 1px dashed var(--line-strong); }
