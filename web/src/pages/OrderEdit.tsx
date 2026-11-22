@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchAll, supabase } from '../lib/supabase'
-import { STATUS_LABEL, type Dish, type DishCost, type Ingredient, type Order, type OrderStatus, type Product, type PurchaseRow } from '../lib/types'
+import { STATUS_LABEL, type Dish, type DishCost, type Ingredient, type Order, type OrderStatus, type Product, type PurchaseRow, type StorePrice } from '../lib/types'
 import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
 import Icon from '../components/Icon'
 import { Alert, Empty, Logo, SearchInput, Skeleton, useToast } from '../components/ui'
@@ -10,6 +10,7 @@ import NutritionCard from '../components/NutritionCard'
 import { addN, gFmt, kcalFmt, ZERO, type DishNutr } from '../lib/nutrition'
 import { catOf, categoryCounts, dishMatches, NO_CAT, norm } from '../lib/search'
 import { ingredientCost, priceDate, uah } from '../lib/cost'
+import { exportPurchaseXlsx } from '../lib/exportPurchase'
 
 /** Порядок відділів у списку закупки — як маршрут магазином/ринком. */
 const AISLES = [
@@ -21,6 +22,7 @@ const aisleRank = (c: string) => (c === NO_CAT ? 999 : AISLES.indexOf(c) === -1 
 
 type Tab = 'menu' | 'purchase' | 'breakdown'
 type PriceRow = Pick<Product, 'id' | 'price_kg' | 'price_pcs' | 'price_source' | 'price_item' | 'price_pack' | 'price_at'>
+const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
 
 export default function OrderEdit() {
   const orderId = Number(useParams().id)
@@ -462,6 +464,8 @@ function MenuTab(props: {
 /* ---------------- 2. Закупка ---------------- */
 
 function PurchaseTab({ order }: { order: Order }) {
+  const toast = useToast()
+  const [xlsxBusy, setXlsxBusy] = useState(false)
   const [rows, setRows] = useState<PurchaseRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [inKg, setInKg] = useState(true)
@@ -568,6 +572,25 @@ function PurchaseTab({ order }: { order: Order }) {
     return null
   }
 
+  async function exportStoresXlsx() {
+    setXlsxBusy(true)
+    try {
+      const ids = [...new Set(rows!.map((r) => r.product_id))]
+      const [list, { data: st }] = await Promise.all([
+        fetchAll<StorePrice>((f, t) => supabase.from('product_prices').select('*').in('product_id', ids).range(f, t)),
+        supabase.from('app_settings').select('value').eq('key', 'price_store').maybeSingle(),
+      ])
+      const m = new Map<number, Record<string, StorePrice>>()
+      for (const x of list) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
+      const stores = list.some((x) => x.store === 'Вручну') ? [...STORES, 'Вручну'] : STORES
+      await exportPurchaseXlsx({ order, rows: ordered, category: cat, calc: prices, storePrices: m, stores, calcStore: st?.value ?? calcSrc })
+    } catch (e) {
+      toast(`Не вдалося створити Excel: ${errText(e)}`, 'err')
+    } finally {
+      setXlsxBusy(false)
+    }
+  }
+
   function exportCsv() {
     downloadCsv(`Закупка - ${order.title}.csv`, [
       ['№', 'Категорія', 'Продукт', 'Од.', 'Брутто', 'Нетто, г', 'Ціна', 'Вартість, грн', 'Джерело ціни', 'Кількість страв', 'Страви'],
@@ -619,7 +642,10 @@ function PurchaseTab({ order }: { order: Order }) {
             {boughtCount > 0 && (
               <button className="btn ghost sm" onClick={() => save(new Set())} title="Зняти всі позначки">Скинути</button>
             )}
-            <button className="btn sm" onClick={exportCsv}><Icon name="download" size={16} /> Excel</button>
+            <button className="btn sm" onClick={exportCsv} title="Простий список закупки (CSV)"><Icon name="download" size={16} /> Excel</button>
+            <button className="btn sm" onClick={exportStoresXlsx} disabled={xlsxBusy} title="Excel: ціна й сума кожної позиції в кожному магазині, порівняння магазинів">
+              <Icon name="download" size={16} /> {xlsxBusy ? 'Готую…' : 'Ціни магазинів'}
+            </button>
             <button className="btn sm" onClick={() => window.print()}><Icon name="printer" size={16} /> Друк</button>
           </div>
         </div>
