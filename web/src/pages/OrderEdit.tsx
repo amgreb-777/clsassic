@@ -224,6 +224,42 @@ export default function OrderEdit() {
     )
 
   const dirty = JSON.stringify(order) !== JSON.stringify(draft)
+  // плитки «Страв / Собівартість (з цінами магазинів) / На гостя / Вага» — на вкладках «Меню» і «Склад»
+  const menuStats = selected.length > 0 && (
+    <div className="stats four no-print">
+      <div className="stat">
+        <div className="k">Страв у меню</div>
+        <div className="v">{selected.length}</div>
+        <div className="kbzv">порцій: {fmt(totalPortions)}</div>
+      </div>
+      <div className="stat cost-card" title="Собівартість меню: брутто × ціни продуктів">
+        <div className="k">Собівартість меню</div>
+        <div className="v">{uah(totalCost)}</div>
+        <div className="kbzv">
+          {missingCost ? (
+            <span className="warn-text">без ціни: {missingCost}</span>
+          ) : menuPricedAt ? (
+            `ціни ${calcStore === 'Середня' ? 'середні' : calcStore} на ${new Date(menuPricedAt + 'T00:00:00').toLocaleDateString('uk-UA')}`
+          ) : (
+            ''
+          )}
+        </div>
+        <StoreTotals lines={menuLines} exclude={calcStore} />
+      </div>
+      <div className="stat">
+        <div className="k">На 1 гостя</div>
+        <div className="v">{order.guests ? uah(totalCost / order.guests) : '—'}</div>
+        <div className="kbzv">
+          {order.guests ? `${fmt(totalWeight / order.guests)} г · ${kcalFmt(totalNutr.kcal / order.guests)} ккал` : 'вкажіть кількість гостей'}
+        </div>
+      </div>
+      <div className="stat">
+        <div className="k">Вага меню</div>
+        <div className="v">{fmt(totalWeight / 1000)} кг</div>
+        <div className="kbzv">{kcalFmt(totalNutr.kcal)} ккал усього</div>
+      </div>
+            </div>
+  )
   const goTab = async (t: Tab) => {
     if (t !== 'menu') await flush()
     setTab(t)
@@ -319,41 +355,7 @@ export default function OrderEdit() {
 
       {tab === 'menu' && (
         <>
-          {selected.length > 0 && (
-            <div className="stats four no-print">
-              <div className="stat">
-                <div className="k">Страв у меню</div>
-                <div className="v">{selected.length}</div>
-                <div className="kbzv">порцій: {fmt(totalPortions)}</div>
-              </div>
-              <div className="stat cost-card" title="Собівартість меню: брутто × ціни продуктів">
-                <div className="k">Собівартість меню</div>
-                <div className="v">{uah(totalCost)}</div>
-                <div className="kbzv">
-                  {missingCost ? (
-                    <span className="warn-text">без ціни: {missingCost}</span>
-                  ) : menuPricedAt ? (
-                    `ціни ${calcStore === 'Середня' ? 'середні' : calcStore} на ${new Date(menuPricedAt + 'T00:00:00').toLocaleDateString('uk-UA')}`
-                  ) : (
-                    ''
-                  )}
-                </div>
-                <StoreTotals lines={menuLines} exclude={calcStore} />
-              </div>
-              <div className="stat">
-                <div className="k">На 1 гостя</div>
-                <div className="v">{order.guests ? uah(totalCost / order.guests) : '—'}</div>
-                <div className="kbzv">
-                  {order.guests ? `${fmt(totalWeight / order.guests)} г · ${kcalFmt(totalNutr.kcal / order.guests)} ккал` : 'вкажіть кількість гостей'}
-                </div>
-              </div>
-              <div className="stat">
-                <div className="k">Вага меню</div>
-                <div className="v">{fmt(totalWeight / 1000)} кг</div>
-                <div className="kbzv">{kcalFmt(totalNutr.kcal)} ккал усього</div>
-              </div>
-            </div>
-          )}
+          {menuStats}
           <MenuTab dishes={dishes} nutr={nutr} costs={costs} selected={selected} items={items} guests={order.guests} onQty={setQty} onRemove={removeDish} />
           {selected.length > 0 && <NutritionCard total={totalNutr} guests={order.guests} missing={missingNutr} />}
           {selected.length > 0 && (
@@ -379,6 +381,7 @@ export default function OrderEdit() {
         </>
       )}
       {tab === 'purchase' && <PurchaseTab order={order} />}
+      {tab === 'breakdown' && menuStats}
       {tab === 'breakdown' && <BreakdownTab order={order} selected={selected} nutr={nutr} costs={costs} />}
     </div>
   )
