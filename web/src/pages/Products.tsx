@@ -23,6 +23,7 @@ type Row = Product & { dish_ingredients: { count: number }[] }
 
 /** Магазини, ціни яких показуємо колонками */
 const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
+const AVG = 'Середня'
 type View = 'prices' | 'nutr'
 
 const fmtD = (d: string | null) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('uk-UA') : '')
@@ -69,7 +70,7 @@ function StoreCell({ sp, calc, best, used }: { sp?: StorePrice; calc: boolean; b
     </>
   )
   return (
-    <td className={`num store-cell hide-sm${calc ? ' calc' : ''}${used ? ' used' : ''}`} title={title}>
+    <td className={`num store-cell hide-sm${calc ? ' calc' : ''}${used ? ' used' : ''}${sp.store === 'Середня' ? ' avg' : ''}`} title={title}>
       {sp.url ? <a href={sp.url} target="_blank" rel="noreferrer">{body}</a> : body}
     </td>
   )
@@ -94,7 +95,13 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     if (!rows) return
     setExporting(true)
     try {
-      await exportPricesXlsx({ products: sortRows(rows), prices: sp, stores: cols, calcStore })
+      const withAvg = new Map(
+        rows.map((p) => {
+          const a = avgOf(p.id)
+          return [p.id, { ...(sp.get(p.id) ?? {}), ...(a ? { [AVG]: a } : {}) }] as const
+        }),
+      )
+      await exportPricesXlsx({ products: sortRows(rows), prices: withAvg, stores: cols, calcStore })
     } catch (e) {
       toast(`Не вдалося створити Excel: ${errText(e)}`, 'err')
     } finally {
@@ -250,7 +257,29 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
   const noPriceCount = (rows ?? []).filter(noPrice).length
   const pricedAt = priceDate([...sp.values()].flatMap((r) => Object.values(r).map((x) => ({ price_at: x.collected_at }))))
   const hasManual = [...sp.values()].some((r) => r['Вручну'])
-  const cols = hasManual ? [...STORES, 'Вручну'] : STORES
+  // «Середня» — віртуальна колонка: середнє арифметичне цін магазинів (без ручних), як у режимі «Середня по магазинах»
+  const cols = [...STORES, AVG, ...(hasManual ? ['Вручну'] : [])]
+  const avgOf = (id: number): StorePrice | undefined => {
+    const r = sp.get(id)
+    if (!r) return undefined
+    const xs = STORES.map((st) => r[st]).filter((x): x is StorePrice => !!x && (x.price_kg != null || x.price_pcs != null))
+    if (!xs.length) return undefined
+    const mean = (vs: number[]) => (vs.length ? Math.round((vs.reduce((a, b) => a + b, 0) / vs.length) * 100) / 100 : null)
+    const kgs = xs.filter((x) => x.price_kg != null).map((x) => Number(x.price_kg))
+    const pcs = xs.filter((x) => x.price_pcs != null).map((x) => Number(x.price_pcs))
+    return {
+      product_id: id,
+      store: AVG,
+      price_kg: mean(kgs),
+      price_pcs: mean(pcs),
+      item: `середня з ${xs.length} магаз.: ${xs.map((x) => x.store).join(', ')}`,
+      pack: null,
+      url: null,
+      note: null,
+      collected_at: xs.map((x) => x.collected_at).sort().pop() ?? '',
+    }
+  }
+  const cellOf = (id: number, st: string) => (st === AVG ? avgOf(id) : sp.get(id)?.[st])
   const storeCount = (st: string) => [...sp.values()].filter((r) => r[st] && (r[st].price_kg != null || r[st].price_pcs != null)).length
   // найнижча ціна за кг серед магазинів (якщо цін щонайменше дві)
   const bestStore = (id: number) => {
@@ -282,7 +311,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     // ціни порівнюємо лише за кг; товари лише з ціною за штуку — в кінці
     if (k === 'price') return p.price_kg == null ? null : Number(p.price_kg)
     if (k.startsWith('store:')) {
-      const x = sp.get(p.id)?.[k.slice(6)]
+      const x = cellOf(p.id, k.slice(6))
       return x?.price_kg == null ? null : Number(x.price_kg)
     }
     const v = p[k as 'kcal' | 'protein' | 'fat' | 'carbs']
@@ -421,10 +450,18 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                         sort={sort}
                         onSort={onSort}
                         className={`num hide-sm${st === calcStore ? ' calc' : ''}`}
-                        title={st === calcStore ? 'Ця ціна йде в собівартість і закупку (якщо немає ручної)' : st === 'Вручну' ? 'Ручна ціна має перевагу над усіма магазинами' : undefined}
+                        title={
+                          st === calcStore
+                            ? 'Ця ціна йде в собівартість і закупку (якщо немає ручної)'
+                            : st === 'Вручну'
+                              ? 'Ручна ціна має перевагу над усіма магазинами'
+                              : st === AVG
+                                ? 'Середнє арифметичне цін магазинів, де продукт знайдено (без ручних цін)'
+                                : undefined
+                        }
                       >
                         <span>
-                          {st}
+                          {st === AVG ? 'Середня ціна' : st}
                           {st === calcStore && <span className="calc-tag">розрахунок</span>}
                           {st === 'Вручну' && <span className="calc-tag">пріоритет</span>}
                         </span>
@@ -514,8 +551,8 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                         <span className="strong" style={{ fontWeight: 500 }}>{p.name}</span>
                         {view === 'prices' ? (
                           <div className="sub-sm show-sm store-line">
-                            {cols.filter((st) => sp.get(p.id)?.[st]).map((st) => {
-                              const x = sp.get(p.id)![st]
+                            {cols.filter((st) => cellOf(p.id, st)).map((st) => {
+                              const x = cellOf(p.id, st)!
                               const v = x.price_kg != null ? `${uah(Number(x.price_kg))}/кг` : x.price_pcs != null ? `${uah(Number(x.price_pcs))}/шт` : '—'
                               return (
                                 <span key={st} className={st === calcStore || p.price_source === st ? 'calc' : bestStore(p.id) === st ? 'best' : undefined}>
@@ -556,7 +593,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
                         cols.map((st) => (
                           <StoreCell
                             key={st}
-                            sp={sp.get(p.id)?.[st]}
+                            sp={cellOf(p.id, st)}
                             calc={st === calcStore}
                             best={bestStore(p.id) === st}
                             used={st !== calcStore && p.price_source === st}
