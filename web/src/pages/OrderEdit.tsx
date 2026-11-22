@@ -582,7 +582,24 @@ function PurchaseTab({ order }: { order: Order }) {
       ])
       const m = new Map<number, Record<string, StorePrice>>()
       for (const x of list) m.set(x.product_id, { ...(m.get(x.product_id) ?? {}), [x.store]: x })
-      const stores = list.some((x) => x.store === 'Вручну') ? [...STORES, 'Вручну'] : STORES
+      // «Середня» — середнє арифметичне цін магазинів (без ручних), як у режимі розрахунку «Середня по магазинах»
+      const mean = (vs: number[]) => (vs.length ? Math.round((vs.reduce((a, b) => a + b, 0) / vs.length) * 100) / 100 : null)
+      for (const [id, rec] of m) {
+        const xs = STORES.map((st) => rec[st]).filter((x): x is StorePrice => !!x && (x.price_kg != null || x.price_pcs != null))
+        if (!xs.length) continue
+        rec['Середня'] = {
+          product_id: id,
+          store: 'Середня',
+          price_kg: mean(xs.filter((x) => x.price_kg != null).map((x) => Number(x.price_kg))),
+          price_pcs: mean(xs.filter((x) => x.price_pcs != null).map((x) => Number(x.price_pcs))),
+          item: `середня з ${xs.length} магаз.`,
+          pack: null,
+          url: null,
+          note: null,
+          collected_at: xs.map((x) => x.collected_at).sort().pop() ?? '',
+        }
+      }
+      const stores = [...STORES, 'Середня', ...(list.some((x) => x.store === 'Вручну') ? ['Вручну'] : [])]
       await exportPurchaseXlsx({ order, rows: ordered, category: cat, calc: prices, storePrices: m, stores, calcStore: st?.value ?? calcSrc })
     } catch (e) {
       toast(`Не вдалося створити Excel: ${errText(e)}`, 'err')
