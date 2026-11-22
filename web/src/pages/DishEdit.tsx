@@ -7,6 +7,7 @@ import Icon from '../components/Icon'
 import { Alert, Skeleton, useConfirm, useToast } from '../components/ui'
 import { addN, gFmt, gramsBasis, kcalFmt, ZERO } from '../lib/nutrition'
 import { ingredientCost, uah } from '../lib/cost'
+import StoreTotals, { type CostLine } from '../components/StoreTotals'
 
 type Line = { key: string; product: string; gross: string; net: string; unit: Unit }
 let seq = 0
@@ -83,6 +84,21 @@ export default function DishEdit() {
   const filled = lines.filter((l) => l.product.trim())
   const noPrice = filled.filter((l) => lineCost(l) == null).length
   const portionCost = filled.reduce((s, l) => s + (lineCost(l) ?? 0), 0)
+  // склад порції для порівняння цін магазинів (продукти, яких ще немає в довіднику, не враховуються)
+  const portionLines: CostLine[] = filled
+    .map((l) => ({ p: byName.get(l.product.trim().toLowerCase()), l }))
+    .filter((x) => !!x.p)
+    .map(({ p, l }) => ({ product_id: p!.id, unit: l.unit, gross: n(l.gross), net: n(l.net) }))
+  const priceSrc = (() => {
+    const c = new Map<string, number>()
+    for (const { p } of filled.map((l) => ({ p: byName.get(l.product.trim().toLowerCase()) })))
+      if (p?.price_source) c.set(p.price_source, (c.get(p.price_source) ?? 0) + 1)
+    return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
+  })()
+  const [calcStore, setCalcStore] = useState('')
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', 'price_store').maybeSingle().then(({ data }) => data?.value && setCalcStore(data.value))
+  }, [])
 
   function upd(key: string, patch: Partial<Line>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -227,10 +243,13 @@ export default function DishEdit() {
               <div className="v">{kcalFmt(portionNutr.kcal)}</div>
               <div className="kbzv">Б {gFmt(portionNutr.protein)} · Ж {gFmt(portionNutr.fat)} · В {gFmt(portionNutr.carbs)} г</div>
             </div>
-            <div className="stat" title="Собівартість 1 порції: брутто × ціни продуктів">
+            <div className="stat cost-card" title="Собівартість 1 порції: брутто × ціни продуктів">
               <div className="k">Собівартість</div>
               <div className="v">{uah(portionCost)}</div>
-              <div className="kbzv">{noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : 'за 1 порцію'}</div>
+              <div className="kbzv">
+                {noPrice ? <span className="warn-text">без ціни: {noPrice}</span> : `за 1 порцію${priceSrc ? ` · ціни ${calcStore === 'Середня' ? 'середні' : calcStore || priceSrc}` : ''}`}
+              </div>
+              <StoreTotals lines={portionLines} exclude={calcStore || priceSrc} />
             </div>
           </div>
           {noNutr > 0 && (
