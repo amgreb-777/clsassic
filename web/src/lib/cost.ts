@@ -1,4 +1,4 @@
-import type { Product } from './types'
+import type { Product, StorePrice } from './types'
 
 export type Price = Pick<Product, 'price_kg' | 'price_pcs'>
 
@@ -34,4 +34,23 @@ export function priceParts(p: Price): string[] {
 export function priceDate(list: { price_at: string | null }[]): string | null {
   const d = list.reduce<string | null>((m, p) => (p.price_at && (!m || p.price_at > m) ? p.price_at : m), null)
   return d ? new Date(d + 'T00:00:00').toLocaleDateString('uk-UA') : null
+}
+
+/** Середня ціна по магазинах (середнє арифметичне ₴/кг і ₴/шт, без ручних) — як у режимі «Середня по магазинах». */
+export function averagePrice(rec: Record<string, StorePrice> | undefined, stores: string[], productId: number): StorePrice | undefined {
+  if (!rec) return undefined
+  const xs = stores.map((st) => rec[st]).filter((x): x is StorePrice => !!x && (x.price_kg != null || x.price_pcs != null))
+  if (!xs.length) return undefined
+  const mean = (vs: number[]) => (vs.length ? Math.round((vs.reduce((a, b) => a + b, 0) / vs.length) * 100) / 100 : null)
+  return {
+    product_id: productId,
+    store: 'Середня',
+    price_kg: mean(xs.filter((x) => x.price_kg != null).map((x) => Number(x.price_kg))),
+    price_pcs: mean(xs.filter((x) => x.price_pcs != null).map((x) => Number(x.price_pcs))),
+    item: `середня з ${xs.length} магаз.`,
+    pack: null,
+    url: null,
+    note: null,
+    collected_at: xs.map((x) => x.collected_at).sort().pop() ?? '',
+  }
 }
