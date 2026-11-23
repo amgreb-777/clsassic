@@ -1,7 +1,11 @@
 // Оновлення цін у всіх магазинах: METRO, NOVUS, Auchan, MegaMarket (API zakaz.ua) і Сільпо (API silpo.ua).
-// Запускає лише адміністратор команди; зміни пишуться від імені користувача (діють RLS-політики).
-// Береться ЗВИЧАЙНА ціна (без акцій). Після оновлення перераховується ціна для розрахунку (apply_price_store).
-import { createClient } from 'npm:@supabase/supabase-js@2'
+// Працює чергою (price_run_items) за кілька проходів, щоб не перевищувати ліміти запитів магазинів:
+//   { action: 'start' }            — адміністратор запускає оновлення (кнопка в розділі «Ціни»);
+//   { action: 'step', run_id }     — наступний прохід (щохвилини викликає планувальник pg_cron, заголовок x-cron-key).
+// Товари, на які магазин відповів «забагато запитів», повертаються в чергу з паузою (1–5 хв), до 8 спроб.
+// Кожна перевірена ціна пишеться в price_history; після останнього проходу finish_price_run перераховує ціну
+// для розрахунку, робить знімок у історію й формує звіт. Береться ЗВИЧАЙНА ціна (без акцій).
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -45,11 +49,11 @@ const countOf = (s: string | null | undefined) => {
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const failReasons: Record<string, number> = {}
+let lastFail = ''
 
-/** GET з повторними спробами: 429/5xx/мережа — до 4 спроб з паузою. */
+/** GET з повторною спробою (429/5xx/мережа — 2 спроби); далі товар повертається в чергу на наступний прохід. */
 async function fetchJson(url: string): Promise<{ status: number; data: any }> {
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const ctl = new AbortController()
     const t = setTimeout(() => ctl.abort(), 15000)
     try {
@@ -59,8 +63,8 @@ async function fetchJson(url: string): Promise<{ status: number; data: any }> {
       })
       if (r.status === 429 || r.status >= 500) {
         await r.body?.cancel()
-        await sleep(800 * 2 ** attempt + Math.random() * 400)
-        if (attempt === 3) return { status: r.status, data: null }
+        if (attempt === 1) return { status: r.status, data: null }
+        await sleep(1200 + Math.random() * 600)
         continue
       }
       if (!r.ok) {
@@ -69,8 +73,8 @@ async function fetchJson(url: string): Promise<{ status: number; data: any }> {
       }
       return { status: r.status, data: await r.json() }
     } catch {
-      if (attempt === 3) return { status: 0, data: null }
-      await sleep(800 * 2 ** attempt)
+      if (attempt === 1) return { status: 0, data: null }
+      await sleep(1000)
     } finally {
       clearTimeout(t)
     }
@@ -78,7 +82,7 @@ async function fetchJson(url: string): Promise<{ status: number; data: any }> {
   return { status: 0, data: null }
 }
 const fail = (why: string) => {
-  failReasons[why] = (failReasons[why] ?? 0) + 1
+  lastFail = why
   return null
 }
 
@@ -152,133 +156,187 @@ function applyFresh(row: Row, f: Fresh, today: string): { row: Row; suspicious: 
   return { row: { ...row, price_kg: kg, price_pcs: pcs, note, collected_at: today, pack_price: round2(f.reg) }, suspicious: false }
 }
 
-async function pool<T, R>(items: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length)
+async function pool<T>(items: T[], n: number, gapMs: number, fn: (x: T) => Promise<void>, deadline: number) {
   let i = 0
   await Promise.all(
     Array.from({ length: n }, async () => {
-      while (i < items.length) {
+      while (i < items.length && Date.now() < deadline) {
         const k = i++
-        out[k] = await fn(items[k])
+        await fn(items[k])
+        if (gapMs) await sleep(gapMs)
       }
     }),
   )
-  return out
+}
+
+type Item = { run_id: number; product_id: number; store: string; status: string; attempts: number; next_at: string; error: string | null }
+type Hist = {
+  run_id: number; product_id: number; store: string; price_kg: number | null; price_pcs: number | null; pack_price: number | null
+  prev_kg: number | null; prev_pcs: number | null; in_stock: boolean; suspicious: boolean
+}
+const RETRY_MIN = [1, 2, 3, 4, 5, 5, 5, 5]
+const MAX_ATTEMPTS = 8
+
+/** Один прохід черги: обробляє товари, яким настав час, поки не вичерпано ~100 с. */
+async function step(admin: SupabaseClient, runId: number) {
+  const { data: claimed, error: ce } = await admin.rpc('claim_price_run', { p_run: runId })
+  if (ce) throw ce
+  if (!claimed) return { busy: true }
+  const deadline = Date.now() + 100_000
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' })
+  let processed = 0
+  try {
+    // поточні ціни магазинів
+    const rows = new Map<string, Row>()
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin.from('product_prices').select('*').neq('store', 'Вручну').order('product_id').order('store').range(from, from + 999)
+      if (error) throw error
+      for (const r of data as Row[]) rows.set(`${r.product_id}|${r.store}`, r)
+      if (!data || data.length < 1000) break
+    }
+    // дві незалежні черги: магазини zakaz.ua (спільний ліміт запитів) і Сільпо
+    const lane = async (stores: string[], threads: number, gapMs: number) => {
+      while (Date.now() < deadline - 15_000) {
+        const { data: due, error } = await admin
+          .from('price_run_items')
+          .select('*')
+          .eq('run_id', runId)
+          .eq('status', 'pending')
+          .in('store', stores)
+          .lte('next_at', new Date().toISOString())
+          .order('attempts')
+          .limit(threads * 40)
+        if (error) throw error
+        if (!due?.length) break
+        const items = due as Item[]
+        const upd: Row[] = []
+        const hist: Hist[] = []
+        const itemUpd: Item[] = []
+        const work = async (it: Item) => {
+          const row = rows.get(`${it.product_id}|${it.store}`)
+          if (!row?.url) {
+            itemUpd.push({ ...it, status: 'failed', error: 'немає посилання' })
+            return
+          }
+          let f: Fresh | null | 'gone' = null
+          let why = ''
+          try {
+            const r = row.store in ZAKAZ ? await freshZakaz(row.store, row.url) : row.store === 'Сільпо' ? await freshSilpo(row.url) : null
+            f = r
+            why = lastFail
+          } catch {
+            f = null
+          }
+          processed++
+          if (f === 'gone') {
+            const keep = (row.note ?? '').split(';').map((x) => x.trim()).filter((x) => x && !x.startsWith('не знайдено при оновленні'))
+            const next = { ...row, note: [...keep, 'не знайдено при оновленні ' + today].join('; ') }
+            rows.set(`${row.product_id}|${row.store}`, next)
+            upd.push(next)
+            itemUpd.push({ ...it, status: 'gone', error: 'товар не знайдено' })
+            return
+          }
+          if (!f) {
+            const attempts = it.attempts + 1
+            itemUpd.push({
+              ...it,
+              attempts,
+              status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
+              error: why || 'немає відповіді',
+              next_at: new Date(Date.now() + (RETRY_MIN[attempts - 1] ?? 5) * 60_000).toISOString(),
+            })
+            return
+          }
+          const { row: next, suspicious } = applyFresh(row, f, today)
+          rows.set(`${row.product_id}|${row.store}`, next)
+          upd.push(next)
+          hist.push({
+            run_id: runId,
+            product_id: row.product_id,
+            store: row.store,
+            price_kg: next.price_kg == null ? null : Number(next.price_kg),
+            price_pcs: next.price_pcs == null ? null : Number(next.price_pcs),
+            pack_price: round2(f.reg),
+            prev_kg: row.price_kg == null ? null : Number(row.price_kg),
+            prev_pcs: row.price_pcs == null ? null : Number(row.price_pcs),
+            in_stock: f.inStock,
+            suspicious,
+          })
+          itemUpd.push({ ...it, status: 'done', error: suspicious ? 'підозріла зміна — ціну не змінено' : null })
+        }
+        await pool(items, threads, gapMs, work, deadline - 10_000)
+        for (let i = 0; i < upd.length; i += 200) {
+          const { error: e } = await admin.from('product_prices').upsert(upd.slice(i, i + 200), { onConflict: 'product_id,store' })
+          if (e) throw e
+        }
+        for (let i = 0; i < hist.length; i += 300) {
+          const { error: e } = await admin.from('price_history').insert(hist.slice(i, i + 300))
+          if (e) throw e
+        }
+        for (let i = 0; i < itemUpd.length; i += 300) {
+          const { error: e } = await admin.from('price_run_items').upsert(itemUpd.slice(i, i + 300), { onConflict: 'run_id,product_id,store' })
+          if (e) throw e
+        }
+        if (!itemUpd.length) break
+      }
+    }
+    // zakaz.ua: 2 потоки з паузою 400 мс — менше відмов «забагато запитів»
+    await Promise.all([lane(Object.keys(ZAKAZ), 2, 400), lane(['Сільпо'], 4, 50)])
+    const { count } = await admin.from('price_run_items').select('*', { count: 'exact', head: true }).eq('run_id', runId).eq('status', 'pending')
+    if (!count) {
+      const { error: fe } = await admin.rpc('finish_price_run', { p_run: runId })
+      if (fe) throw fe
+      return { processed, finished: true }
+    }
+    return { processed, pending: count }
+  } catch (e) {
+    await admin.from('price_runs').update({ error: e instanceof Error ? e.message : String(e) }).eq('id', runId)
+    throw e
+  } finally {
+    await admin.rpc('release_price_run', { p_run: runId })
+  }
+}
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
+const background = (p: Promise<unknown>) => {
+  const safe = p.catch((e) => console.error('step failed', e))
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(safe)
+  return safe
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
+    const url = Deno.env.get('SUPABASE_URL')!
+    const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+    const body = await req.json().catch(() => ({}))
+    const cronKey = req.headers.get('x-cron-key')
+
+    if (cronKey) {
+      const { data: ok } = await admin.rpc('verify_cron_key', { k: cronKey })
+      if (ok !== true) return json({ error: 'forbidden' }, 403)
+      const runId = Number(body?.run_id)
+      if (!runId) return json({ error: 'run_id' }, 400)
+      background(step(admin, runId))
+      return json({ ok: true, run_id: runId })
+    }
+
+    // користувач: лише адміністратор команди
     const auth = req.headers.get('Authorization') ?? ''
-    const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } })
+    const sb = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } })
     const { data: u } = await sb.auth.getUser()
     if (!u?.user?.email) return json({ error: 'Потрібно увійти' }, 401)
     const { data: me } = await sb.from('team_members').select('role').ilike('email', u.user.email).maybeSingle()
     if (me?.role !== 'admin') return json({ error: 'Оновлювати ціни може лише адміністратор' }, 403)
 
-    // body: { store?: string } — оновити один магазин (сайт викликає по черзі, щоб вкластися в ліміт часу);
-    //       { finalize: true } — лише перерахувати ціну для розрахунку й зберегти час оновлення.
-    const body = await req.json().catch(() => ({}))
-    const onlyStore: string | undefined = typeof body?.store === 'string' ? body.store : undefined
-    const finalize = body?.finalize === true || !onlyStore
-    const rows: Row[] = []
-    for (let from = 0; body?.finalize !== true; from += 1000) {
-      let q = sb.from('product_prices').select('*').neq('store', 'Вручну')
-      if (onlyStore) q = q.eq('store', onlyStore)
-      const { data, error } = await q.range(from, from + 999)
+    let runId = Number(body?.run_id) || 0
+    if (body?.action === 'start' || !runId) {
+      const { data, error } = await sb.rpc('start_price_run', { p_trigger: 'manual' })
       if (error) throw error
-      rows.push(...(data as Row[]))
-      if (!data || data.length < 1000) break
+      runId = Number(data)
     }
-    for (const k of Object.keys(failReasons)) delete failReasons[k]
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Kyiv' })
-    const deadline = Date.now() + 110_000 // ліміт функції — 150 с: решту рядків лишаємо на наступний запуск
-    const stat = { total: rows.length, updated: 0, changed: 0, failed: 0, gone: 0, skipped: 0, suspicious: 0, timeout: 0, byStore: {} as Record<string, { updated: number; failed: number; changed: number }> }
-    const changes: { product_id: number; store: string; from: number | null; to: number | null }[] = []
-    // різниця понад ×2,5 — швидше інше трактування фасування, ніж зміна ціни: не перезаписуємо, показуємо на перевірку
-    const suspicious: { product_id: number; store: string; from: number; to: number; title?: string }[] = []
-
-    const work = async (row: Row) => {
-      const s = (stat.byStore[row.store] ??= { updated: 0, failed: 0, changed: 0 })
-      if (!row.url) {
-        stat.skipped++
-        return null
-      }
-      if (Date.now() > deadline) {
-        stat.timeout++
-        return null
-      }
-      try {
-        const f = row.store in ZAKAZ ? await freshZakaz(row.store, row.url) : row.store === 'Сільпо' ? await freshSilpo(row.url) : null
-        if (f === 'gone') {
-          stat.gone++
-          s.failed++
-          const keep = (row.note ?? '').split(';').map((x) => x.trim()).filter((x) => x && !x.startsWith('не знайдено при оновленні'))
-          const note = [...keep, 'не знайдено при оновленні ' + today].join('; ')
-          return { ...row, note }
-        }
-        if (!f) {
-          stat.failed++
-          s.failed++
-          return null
-        }
-        const { row: next, suspicious: sus } = applyFresh(row, f, today)
-        const was = row.price_kg ?? row.price_pcs
-        const fresh = f.kg ?? (f.count ? f.reg / f.count : f.reg)
-        if (sus) {
-          stat.suspicious++
-          suspicious.push({ product_id: row.product_id, store: row.store, from: Number(was), to: round2(Number(fresh)), title: f.title })
-          return next
-        }
-        const now = next.price_kg ?? next.price_pcs
-        stat.updated++
-        s.updated++
-        if (was != null && now != null && Math.abs(Number(was) - Number(now)) >= 0.01) {
-          stat.changed++
-          s.changed++
-          changes.push({ product_id: row.product_id, store: row.store, from: Number(was), to: Number(now) })
-        }
-        return next
-      } catch {
-        stat.failed++
-        s.failed++
-        return null
-      }
-    }
-    // zakaz.ua обмежує частоту запитів — менше паралельних звернень; Сільпо — окремо, паралельно
-    rows.sort((a, b) => (a.collected_at ?? '').localeCompare(b.collected_at ?? ''))
-    const zRows = rows.filter((r) => r.store in ZAKAZ)
-    const oRows = rows.filter((r) => !(r.store in ZAKAZ))
-    const [zRes, oRes] = await Promise.all([pool(zRows, 6, work), pool(oRows, 6, work)])
-    const results = [...zRes, ...oRes]
-
-    const upd = results.filter((x): x is Row => !!x)
-    for (let i = 0; i < upd.length; i += 200) {
-      const { error } = await sb.from('product_prices').upsert(upd.slice(i, i + 200), { onConflict: 'product_id,store' })
-      if (error) throw error
-    }
-
-    // перерахунок ціни для розрахунку за поточним магазином
-    const { data: st } = await sb.from('app_settings').select('value').eq('key', 'price_store').maybeSingle()
-    const store = st?.value ?? 'METRO'
-    let at: string | null = null
-    if (finalize) {
-      const { error: e2 } = await sb.rpc('apply_price_store', { p_store: store })
-      if (e2) throw e2
-      at = new Date().toISOString()
-      await sb.from('app_settings').upsert({ key: 'prices_refreshed_at', value: at })
-    }
-
-    changes.sort((a, b) => Math.abs((b.to ?? 0) - (b.from ?? 0)) - Math.abs((a.to ?? 0) - (a.from ?? 0)))
-    // назви продуктів для звіту
-    const ids = [...new Set([...changes.slice(0, 15), ...suspicious].map((c) => c.product_id))]
-    const names = new Map<number, string>()
-    if (ids.length) {
-      const { data: ps } = await sb.from('products').select('id, name').in('id', ids)
-      for (const p of ps ?? []) names.set(p.id, p.name)
-    }
-    const named = <T extends { product_id: number }>(xs: T[]) => xs.map((x) => ({ ...x, product: names.get(x.product_id) ?? String(x.product_id) }))
-    return json({ ok: true, at, calcStore: store, ...stat, failReasons, topChanges: named(changes.slice(0, 15)), suspicious: named(suspicious) })
+    background(step(admin, runId))
+    return json({ ok: true, run_id: runId })
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
