@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
 import OrderDoc from './pages/OrderDoc'
+import Prices from './pages/Prices'
 import Dishes from './pages/Dishes'
 import DishEdit from './pages/DishEdit'
 import Products from './pages/Products'
@@ -18,6 +19,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: '/orders', label: 'Замовлення', icon: 'orders' },
   { to: '/dishes', label: 'Страви', icon: 'dishes' },
   { to: '/products', label: 'Продукти', icon: 'products' },
+  { to: '/prices', label: 'Ціни', icon: 'trend' },
   { to: '/team', label: 'Команда', icon: 'team' },
 ]
 
@@ -165,6 +167,7 @@ export default function App() {
           <Route path="/dishes" element={<Dishes />} />
           <Route path="/dishes/:id" element={<DishEdit />} />
           <Route path="/products" element={<Products isAdmin={role === 'admin'} />} />
+          <Route path="/prices" element={<Prices isAdmin={role === 'admin'} />} />
           <Route path="/team" element={<Team isAdmin={role === 'admin'} myEmail={email} />} />
           <Route path="*" element={<Navigate to="/orders" replace />} />
         </Routes>
