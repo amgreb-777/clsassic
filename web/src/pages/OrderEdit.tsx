@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { fetchAll, supabase } from '../lib/supabase'
 import { STATUS_LABEL, type Dish, type DishCost, type Ingredient, type Order, type OrderStatus, type Product, type PurchaseRow, type StorePrice } from '../lib/types'
 import { downloadCsv, errText, fmt, fmtDate, qty } from '../lib/format'
@@ -28,6 +28,7 @@ const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
 export default function OrderEdit() {
   const orderId = Number(useParams().id)
   const toast = useToast()
+  const navigate = useNavigate()
   const [order, setOrder] = useState<Order | null>(null)
   const [draft, setDraft] = useState<Order | null>(null)
   const [dishes, setDishes] = useState<Dish[]>([])
@@ -260,6 +261,10 @@ export default function OrderEdit() {
       </div>
             </div>
   )
+  const openDoc = async () => {
+    await flush()
+    navigate(`/orders/${order.id}/doc`)
+  }
   const goTab = async (t: Tab) => {
     if (t !== 'menu') await flush()
     setTab(t)
@@ -278,9 +283,14 @@ export default function OrderEdit() {
               <span className={`badge ${order.status}`}>{STATUS_LABEL[order.status]}</span>
             </div>
           </div>
-          <span className={`save-state ${saving > 0 ? 'saving' : ''}`} aria-live="polite">
-            <span className="dot" /> {saving > 0 ? 'Збереження…' : 'Усі зміни збережено'}
-          </span>
+          <div className="head-side">
+            <button className="btn doc-btn" onClick={openDoc} title="Меню заходу з логотипом: друк, PDF, Excel">
+              <Icon name="printer" size={18} /> Документ замовлення
+            </button>
+            <span className={`save-state ${saving > 0 ? 'saving' : ''}`} aria-live="polite">
+              <span className="dot" /> {saving > 0 ? 'Збереження…' : 'Усі зміни збережено'}
+            </span>
+          </div>
         </div>
       </div>
 

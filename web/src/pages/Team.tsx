@@ -213,7 +213,7 @@ export default function Team({ isAdmin, myEmail }: { isAdmin: boolean; myEmail: 
                         <div className="row" style={{ gap: 10 }}>
                           <span className="avatar" aria-hidden="true">{m.email[0]}</span>
                           <div style={{ minWidth: 0 }}>
-                            <div className="tm-email">{m.email}</div>
+                            <div className="tm-email">{m.email.split('@')[0]}<wbr />@{m.email.split('@').slice(1).join('@')}</div>
                             {me && <span className="small muted">це ви</span>}
                           </div>
                         </div>
