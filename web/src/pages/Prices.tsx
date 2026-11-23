@@ -4,6 +4,7 @@ import { errText } from '../lib/format'
 import { uah } from '../lib/cost'
 import Icon from '../components/Icon'
 import { Alert, Empty, SearchInput, Skeleton, useConfirm, useToast } from '../components/ui'
+import { exportRunReport } from '../lib/exportRunReport'
 
 const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket'] as const
 const CALC = 'Розрахунок'
@@ -260,6 +261,18 @@ function RunProgress({ run, progress }: { run: Run; progress: Progress[] }) {
 /* ---------------- Звіт одного оновлення ---------------- */
 function RunCard({ run }: { run: Run }) {
   const imp = run.trigger === 'import'
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  async function excel() {
+    setBusy(true)
+    try {
+      await exportRunReport(run)
+    } catch (e) {
+      toast(`Не вдалося створити Excel: ${errText(e)}`, 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <details className={`card run-card ${run.status}`}>
       <summary>
@@ -286,6 +299,13 @@ function RunCard({ run }: { run: Run }) {
         )}
       </summary>
       <div className="rc-body">
+        {run.status !== 'running' && (
+          <div className="rc-actions">
+            <button className="btn sm" onClick={excel} disabled={busy}>
+              <Icon name="download" size={16} /> {busy ? 'Готую…' : 'Звіт в Excel'}
+            </button>
+          </div>
+        )}
         {run.error && <Alert kind="err">{run.error}</Alert>}
         {imp ? (
           <p className="muted">Початкова точка історії: ціни, зібрані 22.11.2026 (Сільпо — через MCP, METRO / NOVUS / Auchan / MegaMarket — через zakaz.ua).</p>

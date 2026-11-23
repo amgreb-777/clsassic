@@ -785,6 +785,8 @@ th.num .sort-btn { justify-content: flex-end; }
 .rc-nums .warn b { color: var(--warn); }
 .rc-body { padding: 0 18px 16px; display: grid; gap: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
 .rc-body > p { margin: 0; }
+.rc-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 600px) { .rc-actions .btn { flex: 1; } }
 .rc-table td, .rc-table th { padding: 8px 10px; }
 .rc-block { display: grid; gap: 6px; }
 .rc-block h4 { font-size: 0.95rem; }
