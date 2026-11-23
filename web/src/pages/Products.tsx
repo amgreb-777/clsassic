@@ -201,7 +201,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     if (store === calcStore) return
     const ok = await confirm({
       title: 'Змінити джерело цін?',
-      text: `Собівартість страв і вартість закупки буде перераховано за цінами «${store}». Для продуктів, яких там немає, — мінімальна ціна серед інших магазинів, де товар є в наявності. Ручні ціни буде замінено (вони лишаються в колонці «Вручну»).`,
+      text: `Собівартість страв і вартість закупки буде перераховано за цінами «${store}». Для продуктів, яких там немає або немає в наявності, — мінімальна ціна серед інших магазинів, де товар є в наявності. Ручні ціни буде замінено (вони лишаються в колонці «Вручну»).`,
       ok: 'Перерахувати',
     })
     if (!ok) return
@@ -279,7 +279,7 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
           price_item: fb.item,
           price_pack: fb.pack,
           price_url: fb.url,
-          price_note: fb.store === calcStore ? fb.note : ['немає в ' + calcStore + ' — мінімальна ціна серед магазинів з наявністю', fb.note].filter(Boolean).join('; '),
+          price_note: fb.store === calcStore ? fb.note : [(sp.get(p.id)?.[calcStore] ? 'немає в наявності в ' : 'немає в ') + calcStore + ' — мінімальна ціна серед магазинів з наявністю', fb.note].filter(Boolean).join('; '),
           price_at: fb.collected_at,
         }
       } else priceMeta = { price_source: null, price_item: null, price_pack: null, price_url: null, price_note: null, price_at: null }
@@ -349,10 +349,12 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
   function storeFallback(id: number): StorePrice | null {
     const r = sp.get(id) ?? {}
     const has = (x?: StorePrice) => !!x && (x.price_kg != null || x.price_pcs != null)
-    if (calcStore !== 'Середня' && has(r[calcStore])) return r[calcStore]
+    const own = calcStore !== 'Середня' && has(r[calcStore]) ? r[calcStore] : null
+    if (own && !/наявн/.test(own.note ?? '')) return own
+    // немає в магазині для розрахунку або немає там у наявності — мінімальна ціна серед магазинів з наявністю
     const xs = STORES.filter((st) => st !== calcStore && has(r[st]) && !/наявн/.test(r[st].note ?? '')).map((st) => r[st])
     xs.sort((a, b) => (a.price_kg ?? Infinity) - (b.price_kg ?? Infinity) || (a.price_pcs ?? Infinity) - (b.price_pcs ?? Infinity))
-    return xs[0] ?? null
+    return xs[0] ?? own
   }
 
   // сортування
