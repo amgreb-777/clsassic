@@ -7,6 +7,7 @@ import { Logo, useTheme } from './components/ui'
 import Login from './pages/Login'
 import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
+import OrderDoc from './pages/OrderDoc'
 import Dishes from './pages/Dishes'
 import DishEdit from './pages/DishEdit'
 import Products from './pages/Products'
@@ -160,6 +161,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/orders" replace />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/:id" element={<OrderEdit />} />
+          <Route path="/orders/:id/doc" element={<OrderDoc />} />
           <Route path="/dishes" element={<Dishes />} />
           <Route path="/dishes/:id" element={<DishEdit />} />
           <Route path="/products" element={<Products isAdmin={role === 'admin'} />} />
