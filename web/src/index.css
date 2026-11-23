@@ -1057,3 +1057,36 @@ th.num .sort-btn { justify-content: flex-end; }
   .help-faq.terms dd { margin-bottom: 8px; }
   .help-k { white-space: normal; }
 }
+.help-page .head-actions { display: flex; gap: 8px; align-items: flex-start; }
+@media (max-width: 600px) { .help-page .head-actions .btn { flex: 1; } }
+
+/* Довідка у PDF / друк */
+@page help { size: A4; margin: 16mm 15mm 18mm; }
+@media print {
+  .help-page { page: help; max-width: none; }
+  .help-page .page-head, .help-foot, .help-none { display: none !important; }
+  .help-print-head { display: flex !important; align-items: center; gap: 22px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1.5px solid #a8875a; }
+  .help-print-head .logo { flex: none; }
+  .help-print-head h1 { font-size: 20pt; margin: 4px 0 2px; }
+  .help-print-head p { margin: 0; color: #555; font-size: 9pt; }
+  .help-print-toc { display: block !important; margin-bottom: 10px; break-after: page; }
+  .help-print-toc h2 { font-family: var(--font-display); font-size: 14pt; margin-bottom: 8px; }
+  .help-print-toc ol { margin: 0; padding-left: 22px; display: grid; gap: 5px; font-size: 10.5pt; color: #333; }
+  .help-print-toc li::marker { color: #a8875a; font-weight: 600; }
+  .help-sections { gap: 0; }
+  .help-sec { border: 0 !important; box-shadow: none !important; padding: 0 !important; margin: 0 0 6mm; break-inside: auto; }
+  .help-sec[hidden] { display: block !important; }
+  .help-sec > summary { padding: 0 0 6px; border-bottom: 1px solid #e5ded3; margin-bottom: 8px; break-after: avoid; }
+  .help-sec > summary::after { display: none; }
+  .help-sec > summary .badge { display: none; }
+  .help-ico { width: 30px; height: 30px; border-radius: 8px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .help-h b { font-size: 13.5pt; }
+  .help-h small { font-size: 9pt; }
+  .help-body { padding: 0 0 0 44px; font-size: 10.5pt; line-height: 1.5; color: #222; gap: 7px; }
+  .help-body h4 { font-size: 11pt; break-after: avoid; }
+  .help-body a { color: #222; text-decoration: none; }
+  .help-steps li, .help-list li, .help-faq dt, .help-faq dd, .help-tip { break-inside: avoid; }
+  .help-steps li::before, .help-k, .help-tip, .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .help-k { font-size: 0.85em; }
+  .help-faq.terms { grid-template-columns: 150px 1fr; }
+}
