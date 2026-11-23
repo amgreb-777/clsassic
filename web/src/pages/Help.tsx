@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
-import { SearchInput } from '../components/ui'
+import { Logo, SearchInput, useToast } from '../components/ui'
 
 type Section = { id: string; icon: IconName; title: string; lead: string; body: ReactNode; admin?: boolean }
 
@@ -355,6 +355,28 @@ export default function Help() {
     requestAnimationFrame(() => refs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
   const list = SECTIONS
+  const toast = useToast()
+  const [printing, setPrinting] = useState(false)
+
+  /** PDF: розгортаємо всі розділи, прибираємо пошук і викликаємо друк («Зберегти як PDF»). */
+  function exportPdf() {
+    const was = { q, open, title: document.title }
+    setQ('')
+    setHidden(new Set())
+    setOpen(Object.fromEntries(SECTIONS.map((s) => [s.id, true])))
+    setPrinting(true)
+    document.title = 'Classic Catering — Довідка користувача'
+    const restore = () => {
+      document.title = was.title
+      setOpen(was.open)
+      setQ(was.q)
+      setPrinting(false)
+      window.removeEventListener('afterprint', restore)
+    }
+    window.addEventListener('afterprint', restore)
+    toast('У вікні друку оберіть «Зберегти як PDF»')
+    setTimeout(() => window.print(), 400)
+  }
 
   return (
     <div className="page help-page">
@@ -364,14 +386,39 @@ export default function Help() {
           <h1>Як користуватися платформою</h1>
           <p>Покрокові інструкції для всіх розділів: замовлення, меню, закупка, страви й техкарти, продукти, ціни, команда. Скористайтеся пошуком або змістом.</p>
         </div>
+        <div className="head-actions">
+          <button className="btn" onClick={exportPdf} disabled={printing} title="Уся довідка одним документом: «Зберегти як PDF» у вікні друку">
+            <Icon name="download" size={18} /> PDF
+          </button>
+          <button className="btn" onClick={exportPdf} disabled={printing}>
+            <Icon name="printer" size={18} /> Друк
+          </button>
+        </div>
       </div>
 
-      <div className="help-search">
+      <header className="print-only help-print-head">
+        <Logo />
+        <div>
+          <div className="eyebrow">Інструкція користувача</div>
+          <h1>Платформа закупівлі продуктів під меню заходу</h1>
+          <p>Версія від {new Date().toLocaleDateString('uk-UA')}</p>
+        </div>
+      </header>
+      <nav className="print-only help-print-toc" aria-hidden="true">
+        <h2>Зміст</h2>
+        <ol>
+          {SECTIONS.map((s) => (
+            <li key={s.id}><b>{s.title}</b> — {s.lead}</li>
+          ))}
+        </ol>
+      </nav>
+
+      <div className="help-search no-print">
         <SearchInput value={q} onChange={setQ} placeholder="Пошук у довідці: «PDF», «ручна ціна»…" />
       </div>
 
       {!q && (
-        <nav className="help-toc" aria-label="Зміст довідки">
+        <nav className="help-toc no-print" aria-label="Зміст довідки">
           {list.map((s, i) => (
             <button key={s.id} className="help-toc-item" onClick={() => go(s.id)}>
               <span className="n">{String(i + 1).padStart(2, '0')}</span>
