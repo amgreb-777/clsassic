@@ -9,6 +9,7 @@ import Orders from './pages/Orders'
 import OrderEdit from './pages/OrderEdit'
 import OrderDoc from './pages/OrderDoc'
 import Prices from './pages/Prices'
+import Help from './pages/Help'
 import Dishes from './pages/Dishes'
 import DishEdit from './pages/DishEdit'
 import Products from './pages/Products'
@@ -122,6 +123,9 @@ export default function App() {
               <Icon name={n.icon} /> {n.label}
             </NavLink>
           ))}
+          <NavLink to="/help" className="nav-help">
+            <Icon name="help" /> Довідка
+          </NavLink>
         </nav>
         <div className="sidebar-foot">
           <div className="me">
@@ -146,6 +150,9 @@ export default function App() {
       <header className="mobile-top">
         <Logo />
         <div className="row">
+          <NavLink to="/help" className="btn ghost icon" aria-label="Довідка" title="Довідка">
+            <Icon name="help" />
+          </NavLink>
           <button className="btn ghost icon" aria-label={isDark ? 'Світла тема' : 'Темна тема'} onClick={toggle}>
             <Icon name={isDark ? 'sun' : 'moon'} />
           </button>
@@ -168,6 +175,7 @@ export default function App() {
           <Route path="/dishes/:id" element={<DishEdit />} />
           <Route path="/products" element={<Products isAdmin={role === 'admin'} />} />
           <Route path="/prices" element={<Prices isAdmin={role === 'admin'} />} />
+          <Route path="/help" element={<Help />} />
           <Route path="/team" element={<Team isAdmin={role === 'admin'} myEmail={email} />} />
           <Route path="*" element={<Navigate to="/orders" replace />} />
         </Routes>
