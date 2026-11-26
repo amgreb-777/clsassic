@@ -8,12 +8,9 @@ export const STORES = ['METRO', 'Сільпо', 'NOVUS', 'Auchan', 'MegaMarket']
 /** Рядок закупки: продукт і кількість (брутто/нетто вже помножені на кількість порцій). */
 export type CostLine = { product_id: number; unit: Unit | string; gross: number; net: number }
 
-type Total = { label: string; sum: number; missing: number; kind: 'store' | 'avg' | 'opt' }
-
 /**
- * Вартість тих самих продуктів в інших магазинах: по кожному магазину («без N», якщо чогось немає),
- * за середньою ціною і «оптимальний кошик» (кожна позиція — де найдешевше серед наявних).
- * Магазин, з якого рахується собівартість (`exclude`), не показується — це головне число плитки.
+ * Вартість тих самих продуктів за середньою ціною магазинів (без ручних цін) —
+ * показується в плитках собівартості під основною сумою (ціна для розрахунку).
  */
 export default function StoreTotals({ lines, exclude }: { lines: CostLine[]; exclude?: string }) {
   const [map, setMap] = useState<Map<number, Record<string, StorePrice>> | null>(null)
@@ -38,7 +35,7 @@ export default function StoreTotals({ lines, exclude }: { lines: CostLine[]; exc
     }
   }, [idsKey])
 
-  const totals = useMemo<Total[] | null>(() => {
+  const avg = useMemo<{ sum: number; missing: number } | null>(() => {
     if (!map || !lines.length) return null
     // однакові продукти з різних страв зводимо разом (як у списку закупки)
     const agg = new Map<string, CostLine>()
@@ -47,67 +44,26 @@ export default function StoreTotals({ lines, exclude }: { lines: CostLine[]; exc
       const a = agg.get(k)
       agg.set(k, a ? { ...a, gross: a.gross + l.gross, net: a.net + l.net } : { ...l })
     }
-    const rows = [...agg.values()]
-    const cost = (r: CostLine, x?: StorePrice) => (x ? ingredientCost(r.unit, r.gross, r.net, x) : null)
-    const out: Total[] = STORES.map((st) => {
-      let sum = 0
-      let missing = 0
-      for (const r of rows) {
-        const c = cost(r, map.get(r.product_id)?.[st])
-        if (c == null) missing++
-        else sum += c
-      }
-      return { label: st, sum, missing, kind: 'store' }
-    })
-    let avg = 0
-    let avgMissing = 0
-    let opt = 0
-    let optMissing = 0
-    for (const r of rows) {
-      const rec = map.get(r.product_id)
-      const a = cost(r, averagePrice(rec, STORES, r.product_id))
-      if (a == null) avgMissing++
-      else avg += a
-      const xs = STORES.map((st) => rec?.[st])
-        .filter((x) => x && !/наявн/.test(x.note ?? ''))
-        .map((x) => cost(r, x))
-        .filter((c): c is number => c != null)
-      if (xs.length) opt += Math.min(...xs)
-      else optMissing++
+    let sum = 0
+    let missing = 0
+    for (const r of agg.values()) {
+      const x = averagePrice(map.get(r.product_id), STORES, r.product_id)
+      const c = x ? ingredientCost(r.unit, r.gross, r.net, x) : null
+      if (c == null) missing++
+      else sum += c
     }
-    out.push({ label: 'Середня ціна', sum: avg, missing: avgMissing, kind: 'avg' })
-    out.push({ label: 'Оптимальний кошик', sum: opt, missing: optMissing, kind: 'opt' })
-    return out
+    return { sum, missing }
   }, [map, lines])
 
-  if (!totals) return null
-  // найдешевший магазин, де є все (порівнюємо з усіма, зокрема з магазином розрахунку)
-  const cheapest = totals
-    .filter((t) => t.kind === 'store' && t.missing === 0)
-    .reduce<Total | null>((a, b) => (!a || b.sum < a.sum ? b : a), null)?.label
-  const shown = totals.filter((t) => t.label !== exclude && !(exclude === 'Середня' && t.kind === 'avg'))
-
+  // якщо собівартість і так рахується за середньою ціною — рядок не потрібен
+  if (!avg || exclude === 'Середня') return null
   return (
-    <ul className="store-totals" aria-label="Вартість в інших магазинах">
-      {shown.map((t) => (
-        <li
-          key={t.label}
-          className={`${t.kind}${t.label === cheapest ? ' best' : ''}`}
-          title={
-            t.kind === 'opt'
-              ? 'Кожна позиція — в магазині, де вона найдешевша (серед товарів у наявності)'
-              : t.kind === 'avg'
-                ? 'За середньою ціною магазинів'
-                : t.missing
-                  ? `Сума без ${t.missing} позицій, яких немає в ${t.label}`
-                  : `Усе в ${t.label}`
-          }
-        >
-          <span>{t.label}</span>
-          <b>{uah(t.sum)}</b>
-          {t.missing > 0 && <em>без {t.missing}</em>}
-        </li>
-      ))}
+    <ul className="store-totals" aria-label="Вартість за середньою ціною магазинів">
+      <li className="avg" title="За середньою ціною магазинів (METRO, Сільпо, NOVUS, Auchan, MegaMarket)">
+        <span>Середня ціна</span>
+        <b>{uah(avg.sum)}</b>
+        {avg.missing > 0 && <em>без {avg.missing}</em>}
+      </li>
     </ul>
   )
 }

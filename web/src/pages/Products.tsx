@@ -301,7 +301,11 @@ export default function Products({ isAdmin }: { isAdmin: boolean }) {
     // немає в магазині для розрахунку або немає там у наявності — мінімальна ціна серед магазинів з наявністю
     const xs = STORES.filter((st) => st !== calcStore && has(r[st]) && !/наявн/.test(r[st].note ?? '')).map((st) => r[st])
     xs.sort((a, b) => (a.price_kg ?? Infinity) - (b.price_kg ?? Infinity) || (a.price_pcs ?? Infinity) - (b.price_pcs ?? Infinity))
-    return xs[0] ?? own
+    if (xs[0] || own) return xs[0] ?? own
+    // останній резерв: товару немає в наявності ніде — найнижча відома ціна
+    const any = STORES.filter((st) => has(r[st])).map((st) => r[st])
+    any.sort((a, b) => (a.price_kg ?? Infinity) - (b.price_kg ?? Infinity) || (a.price_pcs ?? Infinity) - (b.price_pcs ?? Infinity))
+    return any[0] ?? null
   }
 
   // сортування
